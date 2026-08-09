@@ -1,21 +1,13 @@
 (() => {
   let menu = null;
   let pendingCommand = null;
+  let selectedConnector = null;
   const COMMAND_MARKER = '\u2063[TML_COMMAND]\u2063';
 
   const getComposer = () => document.querySelector('.composer');
   const getTextarea = () => document.querySelector('.composer textarea') || document.querySelector('textarea');
   const getModel = () => document.querySelector('.model > button')?.textContent?.trim() || '';
   const isGPT = () => /GPT-5\.6 Luna/i.test(getModel());
-
-  function cleanIcons() {
-    document.querySelectorAll('svg').forEach(el => el.style.display = 'none');
-    document.querySelectorAll('.mode').forEach(el => el.style.display = 'none');
-    document.querySelectorAll('.sidebar-collapsed .chat-row').forEach(el => el.style.display = 'none');
-    document.querySelectorAll('[title="Open sidebar"]').forEach(el => {
-      if (!el.closest('.sidebar')) el.style.display = 'none';
-    });
-  }
 
   function closeMenu() { menu?.remove(); menu = null; }
 
@@ -70,8 +62,99 @@
     composer.appendChild(menu);
   }
 
+  function githubLogo() {
+    const img = document.createElement('img');
+    img.className = 'tml-github-logo';
+    img.alt = '';
+    img.src = 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png';
+    return img;
+  }
+
+  function connectorPill() {
+    const pending = document.querySelector('.pending');
+    if (!pending) return;
+    pending.querySelectorAll('.tml-connector-pill').forEach(p => p.remove());
+    if (!selectedConnector) return;
+    const pill = document.createElement('span');
+    pill.className = 'tml-connector-pill';
+    pill.appendChild(githubLogo());
+    const label = document.createElement('span');
+    label.textContent = selectedConnector;
+    pill.appendChild(label);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', 'Remove GitHub connector');
+    remove.textContent = '×';
+    remove.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); selectedConnector = null; connectorPill(); });
+    pill.appendChild(remove);
+    pending.prepend(pill);
+  }
+
+  function closeConnectorMenu() {
+    document.querySelector('#tml-connector-menu')?.remove();
+  }
+
+  function openConnectorMenu() {
+    closeConnectorMenu();
+    const composer = getComposer();
+    if (!composer || !isGPT()) return;
+    const menu = document.createElement('div');
+    menu.id = 'tml-connector-menu';
+    menu.className = 'tml-connector-menu';
+    const title = document.createElement('div');
+    title.className = 'tml-connector-title';
+    title.textContent = 'Connectors';
+    menu.appendChild(title);
+
+    const github = document.createElement('button');
+    github.type = 'button';
+    github.className = 'tml-connector-option';
+    github.appendChild(githubLogo());
+    const copy = document.createElement('span');
+    const name = document.createElement('strong');
+    name.textContent = 'GitHub';
+    const description = document.createElement('small');
+    description.textContent = 'Connect GitHub to this prompt';
+    copy.append(name, description);
+    github.appendChild(copy);
+    github.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectedConnector = 'GitHub';
+      connectorPill();
+      closeConnectorMenu();
+      getTextarea()?.focus();
+    });
+    menu.appendChild(github);
+    composer.appendChild(menu);
+  }
+
+  function ensureConnectorButton() {
+    const composer = getComposer();
+    if (!composer) return;
+    const fileLabel = composer.querySelector('label[title="Attach files"]');
+    if (!fileLabel) return;
+    let button = composer.querySelector('.tml-connector-button');
+    if (!isGPT()) {
+      button?.remove();
+      closeConnectorMenu();
+      if (selectedConnector) { selectedConnector = null; connectorPill(); }
+      return;
+    }
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tml-connector-button';
+      button.title = 'Connectors';
+      button.setAttribute('aria-label', 'Connectors');
+      button.textContent = '+';
+      button.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openConnectorMenu(); });
+      fileLabel.insertAdjacentElement('afterend', button);
+    }
+    connectorPill();
+  }
+
   function bind() {
-    cleanIcons();
     const textarea = getTextarea();
     if (textarea && !textarea.dataset.tmlBound) {
       textarea.dataset.tmlBound = '1';
@@ -79,8 +162,9 @@
         if (textarea.value.endsWith('/')) makeMenu();
         else if (!textarea.value.includes(COMMAND_MARKER)) closeMenu();
       }, true);
-      textarea.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); }, true);
+      textarea.addEventListener('keydown', e => { if (e.key === 'Escape') { closeMenu(); closeConnectorMenu(); } }, true);
     }
+    ensureConnectorButton();
     if (!document.body.dataset.tmlFetchPatched) patchFetch();
   }
 
@@ -92,6 +176,14 @@
         if (url.endsWith('/api/chat') && init?.body) {
           const body = JSON.parse(init.body);
           body.mode = 'chat';
+          if (selectedConnector && /gpt-5\.6-luna/i.test(String(body.model || ''))) {
+            body.messages = Array.isArray(body.messages) ? body.messages.map((m, i) => {
+              if (i !== body.messages.length - 1 || m.role !== 'user') return m;
+              const content = String(m.content || '').replace(/^\s*/, '');
+              if (/^@GitHub\b/i.test(content)) return m;
+              return { ...m, content: `@${selectedConnector}${content ? ` ${content}` : ''}` };
+            }) : body.messages;
+          }
           if (pendingCommand) {
             const command = pendingCommand;
             const prefix = command === 'web' ? '@Web search' : command === 'image' ? '@Create image' : command === 'research' ? '@Deep research' : '';
