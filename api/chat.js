@@ -15,10 +15,8 @@ export default async function handler(req, res) {
     if (fileContext && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nThe user attached text files. Use their contents as source material:\n${String(fileContext).slice(0, 120000)}`;
     if (toolResult && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nA local tool produced this result. Treat it as supplied tool output: ${String(toolResult).slice(0, 4000)}`;
 
-    // Do not impose a client-side timeout on the upstream model. Some reasoning/code-generation
-    // requests legitimately take several minutes. Vercel's function duration is the final safety
-    // boundary; aborting after 60 seconds guaranteed that a still-running provider request could
-    // never finish successfully.
+    // Never impose an artificial 60-second timeout. Long reasoning/code generations must be
+    // allowed to finish. maxDuration above is the serverless runtime's outer boundary.
     const requestJson = async (url, options = {}) => fetch(url, options);
 
     if (model.startsWith('gemini-')) {
@@ -32,14 +30,47 @@ export default async function handler(req, res) {
       if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || 'Gemini request failed' });
       return res.status(200).json({ text: data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || 'No response returned.' });
     }
+
     const provider = model === 'gpt-5.6-luna' ? { base: 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf', model: 'gpt-5.6-luna' } : model === 'claude-sonnet-5' ? { base: 'https://apibeam.bitsmall.in/app/cjzxbswhe4lw9y7rutrsr', model: 'claude-sonnet-5' } : model === 'glm-5.2' ? { base: 'https://apibeam.bitsmall.in/app/8gjkog1269ekxnqffqskgm', model: 'glm-5.2' } : null;
     if (!provider) return res.status(400).json({ error: 'Unsupported model' });
     const imageParts = attachments.filter((a) => a && a.type?.startsWith('image/') && typeof a.data === 'string').map((a) => ({ type: 'image_url', image_url: { url: `data:${a.type};base64,${a.data}` } }));
     const converted = contextualMessages.map((m, i) => i === contextualMessages.length - 1 && imageParts.length ? { ...m, content: [{ type: 'text', text: m.content }, ...imageParts] } : m);
-    const r = await requestJson(`${provider.base}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body: JSON.stringify({ model: provider.model, messages: converted, temperature: 0.7 }) });
-    const responseText = await r.text();
+    const upstreamUrl = `${provider.base}/chat/completions`;
+    const upstreamBody = JSON.stringify({ model: provider.model, messages: converted, temperature: 0.7 });
+
+    // ApiBeam can occasionally return its own HTML Gateway Timeout page (rather than a JSON
+    // error) while the upstream model is still being processed. Treat that as a transient
+    // upstream failure instead of dumping the gateway's HTML into the chat. Retry a few times
+    // with a short backoff, especially for GLM where this has been observed.
+    const transientStatuses = new Set([408, 429, 500, 502, 503, 504]);
+    const transientText = (text) => /(?:gateway\s+timeout|upstream\s+timeout|bad\s+gateway|service\s+unavailable|upstream\s+request)/i.test(String(text || '')) || /^\s*<!doctype html/i.test(String(text || '')) || /^\s*<html[\s>]/i.test(String(text || ''));
+    let r = null;
+    let responseText = '';
+    let lastTransientError = '';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        r = await requestJson(upstreamUrl, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body: upstreamBody });
+        responseText = await r.text();
+      } catch (error) {
+        if (attempt === 2) throw error;
+        lastTransientError = error?.message || 'Upstream connection failed';
+        await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+        continue;
+      }
+      const transient = !r.ok && (transientStatuses.has(r.status) || transientText(responseText));
+      if (!transient || r.ok) break;
+      lastTransientError = responseText;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+    }
+
     let data = null; try { data = responseText ? JSON.parse(responseText) : null; } catch {}
-    if (!r.ok) return res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({ error: data?.error?.message || data?.message || responseText?.slice(0, 1000) || 'ApiBeam request failed' });
+    if (!r?.ok) {
+      const htmlGateway = transientText(responseText) && /<\/?(?:html|!doctype)/i.test(responseText);
+      const message = htmlGateway
+        ? `GLM 5.2 upstream gateway timed out after multiple attempts. The provider did not return a model response. Please retry the request.`
+        : data?.error?.message || data?.message || responseText?.slice(0, 1000) || lastTransientError || 'ApiBeam request failed';
+      return res.status(r?.status >= 400 && r?.status < 600 ? r.status : 502).json({ error: message });
+    }
     if (!data || typeof data !== 'object') return res.status(502).json({ error: 'ApiBeam returned an invalid response.' });
     const choice = data?.choices?.[0];
     const message = choice?.message || {};
