@@ -6,6 +6,8 @@
   let button = null;
   let menu = null;
   let pill = null;
+  let observer = null;
+  let renderQueued = false;
 
   const $ = (s) => document.querySelector(s);
   const setConnectorState = (value) => {
@@ -111,37 +113,66 @@
       if (pill) { pill.classList.remove('tml-selected'); pill.style.display = 'none'; }
       return;
     }
+
     ensure();
     installStyles();
+
     const file = composer.querySelector('label[title], label[aria-label]') || composer.querySelector('label');
     const cr = composer.getBoundingClientRect();
     const fr = file?.getBoundingClientRect();
     const x = fr && fr.width > 0 ? fr.right + 3 : cr.left + 4;
     const y = fr && fr.height > 0 ? fr.top + (fr.height - 34) / 2 : cr.top + (cr.height - 34) / 2;
+
     button.style.left = `${Math.round(x)}px`;
     button.style.top = `${Math.round(y)}px`;
     button.style.display = 'flex';
+
     if (open) {
       const br = button.getBoundingClientRect();
       const width = 270;
+      const menuHeight = menu?.offsetHeight || 145;
       menu.style.left = `${Math.round(Math.min(Math.max(8, br.left), innerWidth - width - 8))}px`;
-      menu.style.top = `${Math.round(Math.max(8, br.top - 145))}px`;
+      menu.style.top = `${Math.round(Math.max(8, br.top - menuHeight - 8))}px`;
       menu.style.display = 'block';
-    } else menu.style.display = 'none';
+    } else {
+      menu.style.display = 'none';
+    }
+
     placePill();
     textarea.style.paddingLeft = '43px';
   }
 
-  function boot() {
-    installStyles();
-    render();
-    new MutationObserver(render).observe(document.body, { childList: true, subtree: true });
-    addEventListener('resize', render);
-    addEventListener('scroll', render, true);
-    addEventListener('tml-connector-change', render);
-    setInterval(render, 500);
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      render();
+    });
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once:true });
+  function boot() {
+    installStyles();
+    scheduleRender();
+
+    if (!observer) {
+      observer = new MutationObserver(scheduleRender);
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+    addEventListener('resize', scheduleRender);
+    addEventListener('scroll', scheduleRender, true);
+    addEventListener('tml-connector-change', scheduleRender);
+
+    // React may mount the composer after this script's initial pass. Give it a few
+    // frames without relying on a permanent 500 ms polling loop.
+    let attempts = 0;
+    const retry = () => {
+      scheduleRender();
+      if (!$('.composer textarea') && attempts++ < 30) requestAnimationFrame(retry);
+    };
+    retry();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();
 })();
