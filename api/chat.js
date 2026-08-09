@@ -64,8 +64,7 @@ async function requestWithTimeLimit(url, body) {
       signal: controller.signal
     });
     const result = await readStreamingResponse(response, deadline);
-    if (result.timedOut) return { response, text: result.text, timedOut: true };
-    return { response, text: result.text, timedOut: false };
+    return { response, text: result.text, timedOut: result.timedOut };
   } finally {
     try { controller.abort(); } catch {}
   }
@@ -121,56 +120,41 @@ export default async function handler(req, res) {
     const imageParts = attachments.filter((a) => a && a.type?.startsWith('image/') && typeof a.data === 'string').map((a) => ({ type: 'image_url', image_url: { url: `data:${a.type};base64,${a.data}` } }));
     const converted = contextualMessages.map((m, i) => i === contextualMessages.length - 1 && imageParts.length ? { ...m, content: [{ type: 'text', text: m.content }, ...imageParts] } : m);
     const upstreamUrl = `${provider.base}/chat/completions`;
+    const body = JSON.stringify({ model: provider.model, messages: converted, temperature: 0.7, stream: true });
 
-    // The continuation loop is deliberately inside the same request so the user sees one
-    // uninterrupted answer. Each upstream attempt gets 4m30s, while Vercel's 5-minute duration
-    // is the hard outer boundary. A streaming response lets us retain text already generated
-    // when our internal limit is reached.
-    const MAX_CONTINUATIONS = 20;
-    let workingMessages = converted;
-    let finalText = '';
-    let annotations = [];
-    let lastStatus = 502;
+    let result;
+    try {
+      result = await requestWithTimeLimit(upstreamUrl, body);
+    } catch (error) {
+      throw error;
+    }
+    const { response, text } = result;
+    const parsed = parseProviderText(text);
+    const returnedText = parsed.text || text;
 
-    for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt += 1) {
-      const body = JSON.stringify({ model: provider.model, messages: workingMessages, temperature: 0.7, stream: true });
-      let result;
-      try {
-        result = await requestWithTimeLimit(upstreamUrl, body);
-      } catch (error) {
-        if (attempt < 2) { await sleep(1500 * (attempt + 1)); continue; }
-        throw error;
-      }
-      const { response, text } = result;
-      lastStatus = response?.status || 502;
-      const parsed = parseProviderText(text);
-      const returnedText = parsed.text || text;
-      if (!response.ok && isTransient(returnedText, response.status)) {
-        if (attempt < 2) { await sleep(1500 * (attempt + 1)); continue; }
-        return res.status(response.status >= 400 && response.status < 600 ? response.status : 502).json({ error: 'The upstream model gateway timed out. Please retry the request.' });
-      }
-      if (!response.ok) return res.status(response.status >= 400 && response.status < 600 ? response.status : 502).json({ error: parsed.data?.error?.message || parsed.data?.message || returnedText?.slice(0, 1000) || 'ApiBeam request failed' });
+    if (!response.ok && isTransient(returnedText, response.status)) {
+      return res.status(response.status >= 400 && response.status < 600 ? response.status : 502).json({ error: 'The upstream model gateway timed out. Please retry the request.' });
+    }
+    if (!response.ok) return res.status(response.status >= 400 && response.status < 600 ? response.status : 502).json({ error: parsed.data?.error?.message || parsed.data?.message || returnedText?.slice(0, 1000) || 'ApiBeam request failed' });
 
-      if (parsed.data) annotations = parsed.data?.choices?.[0]?.message?.annotations || parsed.data?.annotations || annotations;
-      const markerIndex = returnedText.indexOf(ABORT_MARKER);
-      const partial = markerIndex >= 0 ? returnedText.slice(0, markerIndex).trimEnd() : returnedText.trimEnd();
-      finalText = partial;
+    const markerIndex = returnedText.indexOf(ABORT_MARKER);
+    const partial = (markerIndex >= 0 ? returnedText.slice(0, markerIndex) : returnedText).trimEnd();
+    const shouldContinue = result.timedOut || markerIndex >= 0;
+    const annotations = parsed.data?.choices?.[0]?.message?.annotations || parsed.data?.annotations || [];
 
-      if (!result.timedOut && markerIndex < 0) break;
-
-      // If the provider did not emit the marker itself, the application adds the marker
-      // internally. The marker is never exposed to the user; it is only a continuation signal.
-      const continuation = partial || finalText;
-      workingMessages = [
-        ...workingMessages,
-        { role: 'assistant', content: `${continuation}\n${ABORT_MARKER}` },
+    if (shouldContinue) {
+      // IMPORTANT: this response ends this Vercel invocation. The browser-side continuation
+      // worker immediately creates a completely new HTTP invocation with these messages.
+      // Nothing here loops, so every 4m30s attempt gets a fresh Vercel duration budget.
+      const continuationMessages = [
+        ...messages,
+        { role: 'assistant', content: `${partial}\n${ABORT_MARKER}` },
         { role: 'user', content: CONTINUE_PROMPT }
       ];
+      return res.status(200).json({ text: partial || 'Working…', annotations, continuation: true, messages: continuationMessages });
     }
 
-    // Defensive cleanup: the internal marker is never shown to the user.
-    finalText = String(finalText || 'No response returned.').replaceAll(ABORT_MARKER, '').trim();
-    return res.status(200).json({ text: finalText || 'No response returned.', annotations });
+    return res.status(200).json({ text: partial || 'No response returned.', annotations, continuation: false });
   } catch (e) {
     const message = e?.name === 'AbortError' ? 'The upstream request ended unexpectedly' : e?.message || 'Unexpected server error';
     return res.status(500).json({ error: message });
