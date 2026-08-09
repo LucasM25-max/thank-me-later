@@ -191,7 +191,14 @@
             body.messages = Array.isArray(body.messages) ? body.messages.map((m, i) => {
               if (i !== body.messages.length - 1) return m;
               let content = String(m.content || '').replace(COMMAND_MARKER, '').trim();
-              if (prefix) content = `${prefix}${content ? ` ${content}` : ''}`;
+              if (prefix) {
+                if (/^@GitHub\b/i.test(content)) {
+                  content = content.replace(/^@GitHub\b\s*/i, '');
+                  content = `@GitHub ${prefix}${content ? ` ${content}` : ''}`;
+                } else {
+                  content = `${prefix}${content ? ` ${content}` : ''}`;
+                }
+              }
               return { ...m, content };
             }) : body.messages;
             body.codeCommand = command === 'code';
