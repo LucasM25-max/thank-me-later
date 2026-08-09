@@ -1,3 +1,5 @@
+export const maxDuration = 300;
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'Method not allowed' }); }
   try {
@@ -12,7 +14,13 @@ export default async function handler(req, res) {
     if (lastUserIndex >= 0 && (commandPrefix || imagePrefix)) contextualMessages[lastUserIndex].content = `${commandPrefix}${imagePrefix}${contextualMessages[lastUserIndex].content}`;
     if (fileContext && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nThe user attached text files. Use their contents as source material:\n${String(fileContext).slice(0, 120000)}`;
     if (toolResult && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nA local tool produced this result. Treat it as supplied tool output: ${String(toolResult).slice(0, 4000)}`;
-    const requestJson = async (url, options = {}) => { const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 60000); try { return await fetch(url, { ...options, signal: controller.signal }); } finally { clearTimeout(timeout); } };
+
+    // Do not impose a client-side timeout on the upstream model. Some reasoning/code-generation
+    // requests legitimately take several minutes. Vercel's function duration is the final safety
+    // boundary; aborting after 60 seconds guaranteed that a still-running provider request could
+    // never finish successfully.
+    const requestJson = async (url, options = {}) => fetch(url, options);
+
     if (model.startsWith('gemini-')) {
       if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
       const contents = contextualMessages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
@@ -51,10 +59,6 @@ export default async function handler(req, res) {
     walkAnnotations(annotations);
 
     let rawText = String(message?.content || data?.text || 'No response returned.');
-
-    // The browser runner is deliberately capable of loading real browser libraries. Models can
-    // nevertheless occasionally write `THREE.Scene()` without actually loading the global build.
-    // Normalize that common case server-side so a generated Three.js app works on its first run.
     const THREE_CDN = 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.min.js';
     const augmentHtml = (html) => {
       const source = String(html || '');
@@ -84,7 +88,6 @@ export default async function handler(req, res) {
       } catch { return text; }
     };
     rawText = augmentProjectManifest(rawText);
-
     const citationRegex = /cite([^]+)/g;
     const processedText = rawText.replace(citationRegex, (full, rawRefs) => {
       const refs = String(rawRefs).split(/[,\s]+/).filter(Boolean);
@@ -95,7 +98,7 @@ export default async function handler(req, res) {
     });
     return res.status(200).json({ text: processedText, annotations });
   } catch (e) {
-    const message = e?.name === 'AbortError' ? 'Upstream request timed out' : e?.message || 'Unexpected server error';
-    return res.status(e?.name === 'AbortError' ? 504 : 500).json({ error: message });
+    const message = e?.name === 'AbortError' ? 'Upstream request was aborted by the hosting platform' : e?.message || 'Unexpected server error';
+    return res.status(500).json({ error: message });
   }
 }
