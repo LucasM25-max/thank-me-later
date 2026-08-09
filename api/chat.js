@@ -5,7 +5,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { model, messages, attachments = [], fileContext = '', toolResult = null } = req.body || {};
+    const {
+      model,
+      messages,
+      attachments = [],
+      fileContext = '',
+      toolResult = null,
+      webSearch = false,
+      createImage = false
+    } = req.body || {};
+
     if (!model || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Missing model or messages' });
     }
@@ -15,6 +24,15 @@ export default async function handler(req, res) {
 
     const chatPrompt = 'Answer helpfully, accurately and clearly. Preserve conversation context.';
     const contextualMessages = [{ role: 'system', content: chatPrompt }, ...messages.map((m) => ({ role: m.role, content: m.content }))];
+
+    const lastUserIndex = [...contextualMessages].map((m) => m.role).lastIndexOf('user');
+    const commandPrefix = model === 'gpt-5.6-luna' && webSearch ? '@Web search\n' : '';
+    const imagePrefix = model === 'gpt-5.6-luna' && createImage ? '@Create image\n' : '';
+    if (lastUserIndex >= 0 && (commandPrefix || imagePrefix)) {
+      const content = contextualMessages[lastUserIndex].content;
+      const prefixes = `${commandPrefix}${imagePrefix}`;
+      contextualMessages[lastUserIndex].content = `${prefixes}${content}`;
+    }
 
     if (fileContext && contextualMessages.length) {
       contextualMessages[contextualMessages.length - 1].content += `\n\nThe user attached text files. Use their contents as source material:\n${String(fileContext).slice(0, 120000)}`;
