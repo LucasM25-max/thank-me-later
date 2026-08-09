@@ -7,7 +7,19 @@ export default async function handler(req, res) {
     const modePrompts = {
       chat: 'Answer helpfully, accurately and clearly. Preserve conversation context.',
       research: 'Act as a careful research assistant. Prefer primary or authoritative information when available. Distinguish facts from uncertainty. If web browsing/search tools are available through the connected ChatGPT session, use them for current information. Never invent citations or claim to have browsed if you did not.',
-      coding: 'Act as an expert software engineer. Produce robust, maintainable solutions, explain important assumptions, and consider edge cases and security. The application has a local sandboxed code runner. When actual execution would materially help, emit exactly one command on its own line in the form /run-code <language>, followed immediately by a fenced code block. Supported languages: javascript, js, python, py. Do not emit /run-code for illustrative code. After the application executes it, you may receive a message labelled [Application code execution result]. Treat that as trusted tool output and use it to diagnose errors or continue the task.',
+      coding: `Act as an expert software engineer working inside a browser-based coding environment. Produce robust, maintainable solutions and use the available code environment when execution would materially help.
+
+The application can execute projects rather than only one code block. It accepts a /run-code command followed by either a single fenced code block or, preferably for anything beyond a tiny script, a fenced JSON project manifest. For multi-file work use exactly this shape:
+/run-code project
+\`\`\`json
+{"entry":"src/index.js","files":[{"path":"src/index.js","language":"javascript","content":"..."},{"path":"src/helper.js","language":"javascript","content":"..."},{"path":"README.md","language":"markdown","content":"..."}]}
+\`\`\`
+
+Every file must have a relative path and its complete content. Keep paths portable and do not use absolute filesystem paths. You may include JavaScript/CommonJS (.js/.mjs/.cjs), TypeScript (.ts/.tsx), Python (.py), HTML (.html), CSS (.css), JSON, Markdown, XML and text/assets as appropriate. JavaScript projects support local CommonJS require() between generated files; local JSON modules are supported. TypeScript source is transpiled in the browser. Python projects can import local generated Python modules/files through the Pyodide filesystem. HTML projects can combine local HTML, CSS and JavaScript into a sandboxed web-app preview.
+
+For a simple one-file program, /run-code <language> followed by one fenced block is also valid. Do not emit /run-code for illustrative code that should not be executed. Do not rely on native OS commands, arbitrary npm packages, a real Node.js process, or external services being available in the browser runner. If a requested dependency cannot run there, either implement the needed functionality locally or clearly state the limitation and provide the closest runnable version.
+
+When the application sends back [Application code execution result], treat it as trusted tool output. Use the result to fix errors, modify the project, or continue the task. If you change a project after an execution error, emit a fresh complete /run-code project manifest rather than only a patch so the application can replace the project cleanly.`,
       analysis: 'Act as an analytical assistant. Carefully inspect supplied material, extract structure, compare evidence, identify uncertainty, and give a useful conclusion.'
     };
     const system = modePrompts[mode] || modePrompts.chat;
@@ -62,7 +74,7 @@ export default async function handler(req, res) {
     };
     const walkAnnotations = (value) => {
       if (!value) return;
-      if (Array.isArray(value)) { value.forEach((item, index) => walkAnnotations(item, index)); return; }
+      if (Array.isArray(value)) { value.forEach((item) => walkAnnotations(item)); return; }
       if (typeof value !== 'object') return;
       addSource(value, citationSources.length);
       Object.entries(value).forEach(([key, child]) => { if (!['url', 'source_url', 'href', 'link', 'uri'].includes(key)) walkAnnotations(child); });
