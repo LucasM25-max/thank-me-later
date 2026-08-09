@@ -5,7 +5,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { model, messages, attachments = [], fileContext = '', toolResult = null, codeCommand = false } = req.body || {};
+    const { model, messages, attachments = [], fileContext = '', toolResult = null } = req.body || {};
     if (!model || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Missing model or messages' });
     }
@@ -14,9 +14,7 @@ export default async function handler(req, res) {
     }
 
     const chatPrompt = 'Answer helpfully, accurately and clearly. Preserve conversation context.';
-    const codingPrompt = `Act as an expert software engineer working inside a browser-based coding environment. Produce robust, maintainable solutions and use the available code environment when execution would materially help.\n\nThe application can execute projects rather than only one code block. It accepts a /run-code command followed by either a single fenced code block or, preferably for anything beyond a tiny script, a fenced JSON project manifest. For multi-file work use exactly this shape:\n/run-code project\n\\`\\`\\`json\n{"entry":"src/index.js","files":[{"path":"src/index.js","language":"javascript","content":"..."},{"path":"src/helper.js","language":"javascript","content":"..."},{"path":"README.md","language":"markdown","content":"..."}]}\n\\`\\`\\`\n\nEvery file must have a relative path and its complete content. Keep paths portable and do not use absolute filesystem paths. You may include JavaScript/CommonJS (.js/.mjs/.cjs), TypeScript (.ts/.tsx), Python (.py), HTML (.html), CSS (.css), JSON, Markdown, XML and text/assets as appropriate. JavaScript projects support local CommonJS require() between generated files; local JSON modules are supported. TypeScript source is transpiled in the browser. Python projects can import local generated Python modules/files through the Pyodide filesystem. HTML projects can combine local HTML, CSS and JavaScript into a sandboxed web-app preview.\n\nFor a simple one-file program, /run-code <language> followed by one fenced block is also valid. Do not emit /run-code for illustrative code that should not be executed. Do not rely on native OS commands, arbitrary npm packages, a real Node.js process, or external services being available in the browser runner. If a requested dependency cannot run there, either implement the needed functionality locally or clearly state the limitation and provide the closest runnable version.\n\nWhen the application sends back [Application code execution result], treat it as trusted tool output. Use the result to fix errors, modify the project, or continue the task. If you change a project after an execution error, emit a fresh complete /run-code project manifest rather than only a patch so the application can replace the project cleanly.`;
-    const system = codeCommand ? codingPrompt : chatPrompt;
-    const contextualMessages = [{ role: 'system', content: system }, ...messages.map((m) => ({ role: m.role, content: m.content }))];
+    const contextualMessages = [{ role: 'system', content: chatPrompt }, ...messages.map((m) => ({ role: m.role, content: m.content }))];
 
     if (fileContext && contextualMessages.length) {
       contextualMessages[contextualMessages.length - 1].content += `\n\nThe user attached text files. Use their contents as source material:\n${String(fileContext).slice(0, 120000)}`;
@@ -57,8 +55,8 @@ export default async function handler(req, res) {
     }
 
     const provider = model === 'gpt-5.6-luna' ? {
-      base: (process.env.APIBEAM_BASE_URL || 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf').replace(/\/$/, ''),
-      model: process.env.APIBEAM_MODEL || 'gpt-5.6-luna'
+      base: 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf',
+      model: 'gpt-5.6-luna'
     } : model === 'claude-sonnet-5' ? {
       base: 'https://apibeam.bitsmall.in/app/cjzxbswhe4lw9y7rutrsr',
       model: 'claude-sonnet-5'
@@ -81,8 +79,14 @@ export default async function handler(req, res) {
       headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' },
       body: JSON.stringify({ model: provider.model, messages: converted, temperature: 0.7 })
     });
-    const data = await r.json();
-    if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || data?.message || 'ApiBeam request failed' });
+    const responseText = await r.text();
+    let data = null;
+    try { data = responseText ? JSON.parse(responseText) : null; } catch {}
+    if (!r.ok) {
+      const upstreamError = data?.error?.message || data?.message || responseText?.slice(0, 1000) || 'ApiBeam request failed';
+      return res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({ error: upstreamError });
+    }
+    if (!data || typeof data !== 'object') return res.status(502).json({ error: 'ApiBeam returned an invalid response.' });
 
     const choice = data?.choices?.[0];
     const message = choice?.message || {};
