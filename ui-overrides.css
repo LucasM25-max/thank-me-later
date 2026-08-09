@@ -1,0 +1,16 @@
+/* Final UI overrides: text-only controls, cleaner scrolling, universal Code command. */
+svg{display:none!important}
+.mode{display:none!important}
+.sidebar-collapsed .chat-row{display:none!important}
+.sidebar-collapsed .sidebar-toggle{transform:rotate(180deg);transition:transform .35s ease}
+.sidebar-toggle{transition:transform .35s ease;min-width:92px;min-height:32px}
+.sidebar-toggle::after{content:'Collapse';font:500 12px DM Sans,Arial;color:#666}
+.sidebar-collapsed .sidebar-toggle::after{content:'Open'}
+.app section{scrollbar-width:none;-ms-overflow-style:none}
+.app section::-webkit-scrollbar{width:0;height:0;display:none}
+.command-menu#tml-command-menu{bottom:calc(100% + 10px);max-height:300px;overflow:auto}
+#tml-command-menu button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:11px 12px}
+#tml-command-menu button strong{font:600 13px DM Sans,Arial}
+#tml-command-menu button span{font:400 11px DM Sans,Arial;color:#888}
+.tml-command-pill{display:inline-flex!important;align-items:center!important;height:28px!important;padding:0 10px!important;border:1px solid #d8d3ca!important;border-radius:999px!important;background:#eeeae5!important;color:#5f5a53!important;font:600 12px/28px DM Sans,Arial!important;margin:0 4px 4px 0!important}
+@media(max-width:720px){.sidebar-toggle{min-width:78px}.sidebar-toggle::after{content:'Close'}.sidebar-collapsed .sidebar-toggle::after{content:'Open'}}
