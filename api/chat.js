@@ -26,22 +26,24 @@ export default async function handler(req, res) {
       return res.status(200).json({ text: data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || 'No response returned.' });
     }
 
-    if (model !== 'gpt-5.6-luna') return res.status(400).json({ error: 'Unsupported model' });
-    const base = (process.env.APIBEAM_BASE_URL || 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf').replace(/\/$/, '');
+    const provider = model === 'gpt-5.6-luna' ? {
+      base: (process.env.APIBEAM_BASE_URL || 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf').replace(/\/$/, ''),
+      model: process.env.APIBEAM_MODEL || 'gpt-5.6-luna'
+    } : model === 'claude-sonnet-5' ? {
+      base: 'https://apibeam.bitsmall.in/app/cjzxbswhe4lw9y7rutrsr',
+      model: 'claude-sonnet-5'
+    } : null;
+    if (!provider) return res.status(400).json({ error: 'Unsupported model' });
+
     const imageParts = attachments.filter((a) => a.type?.startsWith('image/')).map((a) => ({ type: 'image_url', image_url: { url: `data:${a.type};base64,${a.data}` } }));
     const converted = contextualMessages.map((m, i) => i === contextualMessages.length - 1 && imageParts.length ? { ...m, content: [{ type: 'text', text: m.content }, ...imageParts] } : m);
-    const r = await fetch(`${base}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body: JSON.stringify({ model: process.env.APIBEAM_MODEL || 'gpt-5.6-luna', messages: converted, temperature: 0.7 }) });
+    const r = await fetch(`${provider.base}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body: JSON.stringify({ model: provider.model, messages: converted, temperature: 0.7 }) });
     const data = await r.json();
     if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || data?.message || 'ApiBeam request failed' });
     const choice = data?.choices?.[0];
     const message = choice?.message || {};
     const annotations = message?.annotations || choice?.annotations || data?.annotations || [];
 
-    // API Beam can return citation markers in the text (for example citeturn0news22)
-    // while putting the actual source URL in a separate annotation object. Convert those
-    // markers here, before the response reaches the browser, so the UI never renders the
-    // provider's raw citation syntax. The title attribute lets the React renderer/CSS
-    // distinguish these source links from ordinary links.
     const citationSources = [];
     const seenUrls = new Set();
     const addSource = (value, fallbackIndex = 0) => {
@@ -60,23 +62,18 @@ export default async function handler(req, res) {
       if (Array.isArray(value)) { value.forEach((item, index) => walkAnnotations(item, index)); return; }
       if (typeof value !== 'object') return;
       addSource(value, citationSources.length);
-      Object.entries(value).forEach(([key, child]) => {
-        if (key !== 'url' && key !== 'source_url' && key !== 'href' && key !== 'link' && key !== 'uri') walkAnnotations(child);
-      });
+      Object.entries(value).forEach(([key, child]) => { if (!['url', 'source_url', 'href', 'link', 'uri'].includes(key)) walkAnnotations(child); });
     };
     walkAnnotations(annotations);
-
     const rawText = String(message?.content || data?.text || 'No response returned.');
-    let processedText = rawText;
     const citationRegex = /cite([^]+)/g;
-    processedText = processedText.replace(citationRegex, (full, rawRefs) => {
+    const processedText = rawText.replace(citationRegex, (full, rawRefs) => {
       const refs = String(rawRefs).split(/[,\s]+/).filter(Boolean);
       const selected = refs.map((ref) => citationSources.find((source) => source.refs.includes(ref))).filter(Boolean);
       const sources = selected.length ? selected : citationSources.slice(0, Math.max(1, refs.length));
       if (!sources.length) return '';
       return sources.map((source) => `[${source.domain || source.title}](${source.url} "citation")`).join(' ');
     });
-
     return res.status(200).json({ text: processedText, annotations });
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'Unexpected server error' });
