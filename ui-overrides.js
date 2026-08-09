@@ -12,6 +12,9 @@
     document.querySelectorAll('svg').forEach(el => el.style.display = 'none');
     document.querySelectorAll('.mode').forEach(el => el.style.display = 'none');
     document.querySelectorAll('.sidebar-collapsed .chat-row').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('[title="Open sidebar"]').forEach(el => {
+      if (!el.closest('.sidebar')) el.style.display = 'none';
+    });
   }
 
   function closeMenu() { menu?.remove(); menu = null; }
@@ -40,13 +43,8 @@
     if (!textarea) return;
     const current = textarea.value.replace(/\/$/, '').replace(/^\u2063\[TML_COMMAND\]\u2063\s*/, '').trimStart();
     pendingCommand = kind;
-    if (kind === 'code') {
-      setReactTextarea(`${COMMAND_MARKER}${current ? ` ${current}` : ''}`);
-      addPill('Code');
-    } else {
-      setReactTextarea(`${COMMAND_MARKER}${current ? ` ${current}` : ''}`);
-      addPill(kind === 'web' ? 'Web search' : kind === 'image' ? 'Create image' : 'Deep research');
-    }
+    setReactTextarea(`${COMMAND_MARKER}${current ? ` ${current}` : ''}`);
+    addPill(kind === 'code' ? 'Code' : kind === 'web' ? 'Web search' : kind === 'image' ? 'Create image' : 'Deep research');
     closeMenu();
   }
 
