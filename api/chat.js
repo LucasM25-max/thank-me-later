@@ -26,16 +26,11 @@ export default async function handler(req, res) {
       return res.status(200).json({ text: data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || 'No response returned.' });
     }
 
-    // ApiBeam is an OpenAI-compatible bridge. GPT-5.6 Luna keeps using the
-    // configured ChatGPT model, while Claude Sonnet 5 must retain its model ID
-    // so ApiBeam can route it to the Claude.ai backend instead of ChatGPT.
+    if (model !== 'gpt-5.6-luna') return res.status(400).json({ error: 'Unsupported model' });
     const base = (process.env.APIBEAM_BASE_URL || 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf').replace(/\/$/, '');
     const imageParts = attachments.filter((a) => a.type?.startsWith('image/')).map((a) => ({ type: 'image_url', image_url: { url: `data:${a.type};base64,${a.data}` } }));
     const converted = contextualMessages.map((m, i) => i === contextualMessages.length - 1 && imageParts.length ? { ...m, content: [{ type: 'text', text: m.content }, ...imageParts] } : m);
-    const apiBeamModel = model === 'claude-sonnet-5'
-      ? 'claude-sonnet-5'
-      : (process.env.APIBEAM_MODEL || model);
-    const r = await fetch(`${base}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body: JSON.stringify({ model: apiBeamModel, messages: converted, temperature: 0.7 }) });
+    const r = await fetch(`${base}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body: JSON.stringify({ model: process.env.APIBEAM_MODEL || 'gpt-5.6-luna', messages: converted, temperature: 0.7 }) });
     const data = await r.json();
     if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || data?.message || 'ApiBeam request failed' });
     return res.status(200).json({ text: data?.choices?.[0]?.message?.content || data?.text || 'No response returned.' });
