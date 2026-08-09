@@ -36,7 +36,48 @@ export default async function handler(req, res) {
     const choice = data?.choices?.[0];
     const message = choice?.message || {};
     const annotations = message?.annotations || choice?.annotations || data?.annotations || [];
-    return res.status(200).json({ text: message?.content || data?.text || 'No response returned.', annotations });
+
+    // API Beam can return citation markers in the text (for example citeturn0news22)
+    // while putting the actual source URL in a separate annotation object. Convert those
+    // markers here, before the response reaches the browser, so the UI never renders the
+    // provider's raw citation syntax. The title attribute lets the React renderer/CSS
+    // distinguish these source links from ordinary links.
+    const citationSources = [];
+    const seenUrls = new Set();
+    const addSource = (value, fallbackIndex = 0) => {
+      if (!value || typeof value !== 'object') return;
+      const url = value.url || value.source_url || value.href || value.link || value.uri || value.url_citation?.url || value.citation?.url || value.source?.url;
+      if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url) || seenUrls.has(url)) return;
+      const title = value.title || value.name || value.url_citation?.title || value.citation?.title || value.source?.title || '';
+      const refs = [value.id, value.ref, value.citation_id, value.citation?.id, value.citation?.ref, value.url_citation?.id].filter(Boolean).map(String);
+      let domain = '';
+      try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+      seenUrls.add(url);
+      citationSources.push({ url, title: String(title || domain || `Source ${fallbackIndex + 1}`), domain, refs });
+    };
+    const walkAnnotations = (value) => {
+      if (!value) return;
+      if (Array.isArray(value)) { value.forEach((item, index) => walkAnnotations(item, index)); return; }
+      if (typeof value !== 'object') return;
+      addSource(value, citationSources.length);
+      Object.entries(value).forEach(([key, child]) => {
+        if (key !== 'url' && key !== 'source_url' && key !== 'href' && key !== 'link' && key !== 'uri') walkAnnotations(child);
+      });
+    };
+    walkAnnotations(annotations);
+
+    const rawText = String(message?.content || data?.text || 'No response returned.');
+    let processedText = rawText;
+    const citationRegex = /cite([^]+)/g;
+    processedText = processedText.replace(citationRegex, (full, rawRefs) => {
+      const refs = String(rawRefs).split(/[,\s]+/).filter(Boolean);
+      const selected = refs.map((ref) => citationSources.find((source) => source.refs.includes(ref))).filter(Boolean);
+      const sources = selected.length ? selected : citationSources.slice(0, Math.max(1, refs.length));
+      if (!sources.length) return '';
+      return sources.map((source) => `[${source.domain || source.title}](${source.url} "citation")`).join(' ');
+    });
+
+    return res.status(200).json({ text: processedText, annotations });
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'Unexpected server error' });
   }
