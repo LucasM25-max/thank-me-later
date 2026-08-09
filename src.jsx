@@ -6,7 +6,7 @@ import { Plus, Paperclip, ArrowUp, MessageSquare, ChevronDown, X, Copy, RotateCc
 import './style.css';
 import './command-menu.css';
 
-const models = [['gpt-5.6-luna', 'GPT-5.6 Luna'], ['claude-sonnet-5', 'Claude Sonnet 5'], ['gemini-pro-latest', 'Gemini Pro'], ['gemini-flash-latest', 'Gemini Flash'], ['gemini-flash-lite-latest', 'Gemini Flash Lite']];
+const models = [['gpt-5.6-luna', 'GPT-5.6 Luna'], ['claude-sonnet-5', 'Claude Sonnet 5'], ['glm-5.2', 'GLM 5.2'], ['gemini-pro-latest', 'Gemini Pro'], ['gemini-flash-latest', 'Gemini Flash'], ['gemini-flash-lite-latest', 'Gemini Flash Lite']];
 const modes = { chat: { label: 'Chat', icon: Sparkles }, research: { label: 'Research', icon: Globe }, coding: { label: 'Code', icon: Code2 }, analysis: { label: 'Analyse', icon: Calculator } };
 const id = () => crypto.randomUUID();
 function load(key, fallback) { try { const value = JSON.parse(localStorage.getItem(key) || 'null'); return Array.isArray(value) ? value : fallback; } catch { return fallback; } }
