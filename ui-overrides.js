@@ -1,466 +1,215 @@
 (() => {
   'use strict';
 
-  /* ================================================================
-     TML COMMAND + CONNECTOR UI
-     Connector UI is self-contained and styled here so it cannot be
-     hidden by the application's existing CSS.
-     ================================================================ */
+  // Connector UI deliberately lives OUTSIDE React's .composer tree.
+  // React owns .composer and can remove DOM nodes inserted into it.
+  // This implementation therefore mounts its controls directly under body
+  // and positions them against the live composer controls.
 
-  const COMMAND_MARKER = '\u2063[TML_COMMAND]\u2063';
-  let pendingCommand = null;
-  let selectedConnector = null;
-  let commandMenu = null;
-  let connectorMenu = null;
+  let selected = false;
+  let menu = null;
+  let button = null;
+  let pill = null;
+  let lastLuna = false;
+  let originalFetch = null;
 
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const composer = () => $('.composer');
-  const input = () => $('.composer textarea') || $('textarea');
-  const model = () => $('.model > button')?.textContent?.replace(/\s+/g, ' ').trim() || '';
-  const isLuna = () => /gpt\s*[- ]?5\.6\s*luna/i.test(model());
+  const q = (s, root = document) => root.querySelector(s);
+  const composer = () => q('.composer');
+  const textarea = () => q('.composer textarea') || q('textarea');
+  const luna = () => /gpt\s*[- ]?5\.6\s*luna/i.test(q('.model > button')?.textContent || '');
 
-  function installStyles() {
-    if ($('#tml-fresh-connector-css')) return;
-    const style = document.createElement('style');
-    style.id = 'tml-fresh-connector-css';
-    style.textContent = `
-      .composer .tml-fresh-plus {
-        all: unset !important;
-        box-sizing: border-box !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        flex: 0 0 36px !important;
-        width: 36px !important;
-        min-width: 36px !important;
-        max-width: 36px !important;
-        height: 36px !important;
-        min-height: 36px !important;
-        max-height: 36px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        border: 0 !important;
-        border-radius: 9px !important;
-        background: transparent !important;
-        color: #625d55 !important;
-        cursor: pointer !important;
-        font: 400 26px/36px Arial, sans-serif !important;
-        opacity: 1 !important;
-        visibility: visible !important;
-        position: relative !important;
-        z-index: 9999 !important;
-        transform: none !important;
-      }
-      .composer .tml-fresh-plus:hover {
-        background: #eeeae3 !important;
-        color: #24211e !important;
-      }
-      .composer .tml-fresh-plus span {
-        all: unset !important;
-        display: block !important;
-        font: 400 26px/36px Arial, sans-serif !important;
-        color: inherit !important;
-      }
+  function githubMark(size = 16) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', String(size));
+    svg.setAttribute('height', String(size));
+    svg.setAttribute('aria-hidden', 'true');
+    svg.style.display = 'block';
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('fill', 'currentColor');
+    path.setAttribute('d', 'M12 .67a11.33 11.33 0 0 0-3.58 22.08c.57.1.78-.25.78-.55v-2.15c-3.18.69-3.85-1.34-3.85-1.34-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.67 1.24 3.32.95.1-.74.4-1.24.72-1.53-2.54-.29-5.2-1.27-5.2-5.67 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.12 1.17a10.84 10.84 0 0 1 5.68 0c2.16-1.48 3.12-1.17 3.12-1.17.62 1.57.23 2.73.11 3.02.73.8 1.18 1.82 1.18 3.07 0 4.41-2.67 5.37-5.21 5.66.41.36.77 1.07.77 2.16v3.2c0 .31.21.66.79.55A11.33 11.33 0 0 0 12 .67Z');
+    svg.appendChild(path);
+    return svg;
+  }
 
-      .composer .tml-fresh-pill {
-        all: unset !important;
-        box-sizing: border-box !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        flex: 0 0 auto !important;
-        align-self: flex-end !important;
-        height: 28px !important;
-        min-height: 28px !important;
-        margin: 0 6px 5px 2px !important;
-        padding: 0 7px !important;
-        gap: 5px !important;
-        border: 1px solid #d6d1c8 !important;
-        border-radius: 999px !important;
-        background: #eeeae5 !important;
-        color: #504b44 !important;
-        font: 600 12px/28px DM Sans, Arial, sans-serif !important;
-        white-space: nowrap !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-      }
-      .composer .tml-fresh-pill img {
-        width: 15px !important;
-        height: 15px !important;
-        display: block !important;
-        flex: 0 0 15px !important;
-      }
-      .composer .tml-fresh-pill .tml-pill-remove {
-        all: unset !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        width: 17px !important;
-        height: 17px !important;
-        border-radius: 50% !important;
-        color: #777168 !important;
-        cursor: pointer !important;
-        font: 400 15px/17px Arial, sans-serif !important;
-      }
-      .composer .tml-fresh-pill .tml-pill-remove:hover {
-        background: #ded9d0 !important;
-        color: #292621 !important;
-      }
-
-      .composer .tml-fresh-menu {
-        position: absolute !important;
-        left: 7px !important;
-        bottom: calc(100% + 9px) !important;
-        width: 270px !important;
-        box-sizing: border-box !important;
-        padding: 7px !important;
-        background: #fff !important;
-        border: 1px solid #ded9d1 !important;
-        border-radius: 14px !important;
-        box-shadow: 0 16px 40px rgba(0,0,0,.16) !important;
-        z-index: 10000 !important;
-      }
-      .composer .tml-fresh-menu-title {
-        padding: 8px 10px !important;
-        color: #403c37 !important;
-        font: 600 13px/18px DM Sans, Arial, sans-serif !important;
-      }
-      .composer .tml-fresh-github {
-        all: unset !important;
-        box-sizing: border-box !important;
-        width: 100% !important;
-        min-height: 50px !important;
-        padding: 9px 10px !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 10px !important;
-        border-radius: 10px !important;
-        cursor: pointer !important;
-        color: #403c37 !important;
-      }
-      .composer .tml-fresh-github:hover { background: #f1eee8 !important; }
-      .composer .tml-fresh-github img {
-        width: 21px !important;
-        height: 21px !important;
-        display: block !important;
-      }
-      .composer .tml-fresh-github-text {
-        display: flex !important;
-        flex-direction: column !important;
-        gap: 2px !important;
-      }
-      .composer .tml-fresh-github-text strong {
-        font: 600 13px/17px DM Sans, Arial, sans-serif !important;
-      }
-      .composer .tml-fresh-github-text small {
-        color: #888 !important;
-        font: 400 11px/15px DM Sans, Arial, sans-serif !important;
-      }
+  function styles() {
+    if (q('#tml-connector-native-css')) return;
+    const s = document.createElement('style');
+    s.id = 'tml-connector-native-css';
+    s.textContent = `
+      #tml-connector-plus{position:fixed;z-index:2147483000;display:none;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:0;border-radius:9px;background:transparent;color:#625d55;cursor:pointer;font:400 25px/34px Arial,sans-serif;box-sizing:border-box;}
+      #tml-connector-plus:hover{background:#eeeae3;color:#292621}
+      #tml-connector-menu{position:fixed;z-index:2147483001;width:260px;padding:7px;background:#fff;border:1px solid #ded9d1;border-radius:14px;box-shadow:0 16px 40px #0002;box-sizing:border-box;display:none}
+      #tml-connector-menu .title{padding:8px 10px;color:#403c37;font:600 13px/18px DM Sans,Arial,sans-serif}
+      #tml-connector-menu button{all:unset;box-sizing:border-box;width:100%;min-height:50px;padding:9px 10px;display:flex;align-items:center;gap:10px;border-radius:10px;color:#403c37;cursor:pointer;font-family:DM Sans,Arial,sans-serif}
+      #tml-connector-menu button:hover{background:#f1eee8}
+      #tml-connector-menu .copy{display:flex;flex-direction:column;gap:2px}
+      #tml-connector-menu strong{font-size:13px;line-height:17px}
+      #tml-connector-menu small{color:#888;font-size:11px;line-height:15px}
+      #tml-connector-pill{position:fixed;z-index:2147482999;display:none;align-items:center;gap:5px;height:28px;padding:0 7px;border:1px solid #d6d1c8;border-radius:999px;background:#eeeae5;color:#504b44;font:600 12px/28px DM Sans,Arial,sans-serif;white-space:nowrap;box-sizing:border-box;box-shadow:0 1px 2px #0001}
+      #tml-connector-pill button{all:unset;width:17px;height:17px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:#777168;cursor:pointer;font:400 15px/17px Arial,sans-serif}
+      #tml-connector-pill button:hover{background:#ded9d0;color:#292621}
     `;
-    document.head.appendChild(style);
+    document.head.appendChild(s);
   }
 
-  function githubLogo() {
-    const img = document.createElement('img');
-    img.src = 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png';
-    img.alt = '';
-    img.setAttribute('aria-hidden', 'true');
-    return img;
+  function ensureElements() {
+    if (!button) {
+      button = document.createElement('button');
+      button.id = 'tml-connector-plus';
+      button.type = 'button';
+      button.title = 'Connectors';
+      button.setAttribute('aria-label', 'Connectors');
+      button.textContent = '+';
+      button.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleMenu(); });
+      document.body.appendChild(button);
+    }
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'tml-connector-menu';
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = 'Connectors';
+      menu.appendChild(title);
+      const github = document.createElement('button');
+      github.type = 'button';
+      github.appendChild(githubMark(21));
+      const copy = document.createElement('span');
+      copy.className = 'copy';
+      const name = document.createElement('strong');
+      name.textContent = 'GitHub';
+      const desc = document.createElement('small');
+      desc.textContent = 'Connect GitHub to this prompt';
+      copy.append(name, desc);
+      github.appendChild(copy);
+      github.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); selected = true; closeMenu(); render(); textarea()?.focus(); });
+      menu.appendChild(github);
+      document.body.appendChild(menu);
+    }
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.id = 'tml-connector-pill';
+      pill.appendChild(githubMark(15));
+      const label = document.createElement('span');
+      label.textContent = 'GitHub';
+      pill.appendChild(label);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.setAttribute('aria-label', 'Remove GitHub connector');
+      remove.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); selected = false; render(); textarea()?.focus(); });
+      pill.appendChild(remove);
+      document.body.appendChild(pill);
+    }
   }
 
-  function removeMenus() {
-    commandMenu?.remove();
-    connectorMenu?.remove();
-    commandMenu = null;
-    connectorMenu = null;
-  }
-
-  function removePill() {
-    document.querySelectorAll('.tml-fresh-pill').forEach(el => el.remove());
-  }
-
-  function setInputValue(value) {
-    const el = input();
-    if (!el) return;
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-    if (setter) setter.call(el, value); else el.value = value;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.focus();
-  }
-
-  function renderPill() {
-    removePill();
+  function fileControl() {
     const box = composer();
-    const el = input();
-    if (!box || !el || !selectedConnector || !isLuna()) return;
-
-    const pill = document.createElement('span');
-    pill.className = 'tml-fresh-pill';
-    pill.appendChild(githubLogo());
-
-    const label = document.createElement('span');
-    label.textContent = selectedConnector;
-    pill.appendChild(label);
-
-    const removeButton = document.createElement('button');
-    removeButton.type = 'button';
-    removeButton.className = 'tml-pill-remove';
-    removeButton.textContent = '×';
-    removeButton.setAttribute('aria-label', 'Remove GitHub connector');
-    removeButton.addEventListener('click', event => {
-      event.preventDefault();
-      event.stopPropagation();
-      selectedConnector = null;
-      renderPill();
-      el.focus();
-    });
-    pill.appendChild(removeButton);
-
-    // Same flex row as the textarea: immediately before the text itself.
-    el.parentNode.insertBefore(pill, el);
-  }
-
-  function openConnectorMenu() {
-    connectorMenu?.remove();
-    const box = composer();
-    if (!box || !isLuna()) return;
-
-    connectorMenu = document.createElement('div');
-    connectorMenu.className = 'tml-fresh-menu';
-
-    const title = document.createElement('div');
-    title.className = 'tml-fresh-menu-title';
-    title.textContent = 'Connectors';
-    connectorMenu.appendChild(title);
-
-    const github = document.createElement('button');
-    github.type = 'button';
-    github.className = 'tml-fresh-github';
-    github.appendChild(githubLogo());
-
-    const text = document.createElement('span');
-    text.className = 'tml-fresh-github-text';
-    const name = document.createElement('strong');
-    name.textContent = 'GitHub';
-    const description = document.createElement('small');
-    description.textContent = 'Connect GitHub to this prompt';
-    text.append(name, description);
-    github.appendChild(text);
-
-    github.addEventListener('click', event => {
-      event.preventDefault();
-      event.stopPropagation();
-      selectedConnector = 'GitHub';
-      connectorMenu?.remove();
-      connectorMenu = null;
-      renderPill();
-      input()?.focus();
-    });
-
-    connectorMenu.appendChild(github);
-    box.appendChild(connectorMenu);
-  }
-
-  function findFileControl(box) {
-    return Array.from(box.querySelectorAll('label,button')).find(node => {
-      if (node.classList.contains('tml-fresh-plus')) return false;
-      const metadata = [
-        node.getAttribute('aria-label'),
-        node.getAttribute('title'),
-        node.textContent
-      ].filter(Boolean).join(' ');
-      return /attach|file|upload/i.test(metadata);
+    if (!box) return null;
+    return Array.from(box.querySelectorAll('label,button')).find(el => {
+      const text = `${el.getAttribute('title') || ''} ${el.getAttribute('aria-label') || ''}`;
+      return /attach|file|upload/i.test(text);
     });
   }
 
-  function installPlus() {
+  function position() {
     const box = composer();
-    const el = input();
-    if (!box || !el) return;
-
-    let plus = box.querySelector('.tml-fresh-plus');
-
-    if (!isLuna()) {
-      plus?.remove();
-      removePill();
-      connectorMenu?.remove();
-      connectorMenu = null;
-      selectedConnector = null;
+    const input = textarea();
+    if (!box || !input || !luna()) {
+      if (button) button.style.display = 'none';
+      if (pill) pill.style.display = 'none';
+      closeMenu();
+      lastLuna = false;
+      if (!luna()) selected = false;
       return;
     }
 
-    if (!plus) {
-      plus = document.createElement('button');
-      plus.type = 'button';
-      plus.className = 'tml-fresh-plus';
-      plus.title = 'Connectors';
-      plus.setAttribute('aria-label', 'Connectors');
+    ensureElements();
+    const file = fileControl();
+    const cr = box.getBoundingClientRect();
+    const fr = file?.getBoundingClientRect();
+    const ir = input.getBoundingClientRect();
 
-      const symbol = document.createElement('span');
-      symbol.textContent = '+';
-      plus.appendChild(symbol);
+    // Always position in the viewport, outside React's DOM ownership.
+    // This is the critical fix: React cannot remove these nodes.
+    const x = fr ? fr.right + 2 : cr.left + 8;
+    const y = fr ? fr.top + (fr.height - 34) / 2 : cr.bottom - 42;
+    button.style.left = `${Math.round(x)}px`;
+    button.style.top = `${Math.round(y)}px`;
+    button.style.display = 'flex';
 
-      plus.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        openConnectorMenu();
-      });
-
-      const file = findFileControl(box);
-      if (file) {
-        // Exact requested location: immediately after the file button.
-        file.insertAdjacentElement('afterend', plus);
-      } else {
-        // Guaranteed fallback inside the actual composer row.
-        el.parentNode.insertBefore(plus, el);
-      }
+    if (selected) {
+      const pr = { width: 82 };
+      const px = ir.left + 4;
+      const py = ir.top + Math.max(4, (ir.height - 28) / 2);
+      pill.style.left = `${Math.round(px)}px`;
+      pill.style.top = `${Math.round(py)}px`;
+      pill.style.display = 'flex';
+      input.style.paddingLeft = `${pr.width}px`;
+    } else {
+      pill.style.display = 'none';
+      input.style.paddingLeft = '';
     }
-
-    // Reassert visibility every reconciliation cycle.
-    plus.hidden = false;
-    plus.disabled = false;
-    plus.style.setProperty('display', 'flex', 'important');
-    plus.style.setProperty('visibility', 'visible', 'important');
-    plus.style.setProperty('opacity', '1', 'important');
-    plus.style.setProperty('pointer-events', 'auto', 'important');
-    plus.style.setProperty('z-index', '9999', 'important');
-
-    renderPill();
+    lastLuna = true;
   }
 
-  function openCommandMenu() {
-    commandMenu?.remove();
-    const box = composer();
-    if (!box) return;
-
-    commandMenu = document.createElement('div');
-    commandMenu.className = 'tml-fresh-menu';
-    const title = document.createElement('div');
-    title.className = 'tml-fresh-menu-title';
-    title.textContent = 'Commands';
-    commandMenu.appendChild(title);
-
-    const choices = [];
-    if (isLuna()) {
-      choices.push(['web', 'Web search', 'Search current information']);
-      choices.push(['image', 'Create image', 'Create an image']);
-      choices.push(['research', 'Deep research', 'Research the request']);
-    }
-    choices.push(['code', 'Code', 'Use coding mode']);
-
-    choices.forEach(([kind, label, description]) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.style.cssText = 'all:unset!important;box-sizing:border-box!important;width:100%!important;padding:10px!important;display:flex!important;flex-direction:column!important;gap:2px!important;border-radius:9px!important;cursor:pointer!important;';
-      const strong = document.createElement('strong');
-      strong.textContent = label;
-      const small = document.createElement('small');
-      small.textContent = description;
-      small.style.cssText = 'color:#888!important;font:400 11px/15px DM Sans,Arial,sans-serif!important;';
-      button.append(strong, small);
-      button.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        const el = input();
-        if (!el) return;
-        const current = el.value.replace(/\/$/, '').replace(/^\u2063\[TML_COMMAND\]\u2063\s*/, '').trimStart();
-        pendingCommand = kind;
-        setInputValue(`${COMMAND_MARKER}${current ? ` ${current}` : ''}`);
-        commandMenu?.remove();
-        commandMenu = null;
-      });
-      commandMenu.appendChild(button);
-    });
-
-    box.appendChild(commandMenu);
+  function toggleMenu() {
+    if (!luna()) return;
+    ensureElements();
+    if (menu.style.display === 'block') { closeMenu(); return; }
+    const r = button.getBoundingClientRect();
+    const width = 260;
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(r.top - 9 - 155)}px`;
+    menu.style.display = 'block';
   }
 
-  function bindCommands() {
-    const el = input();
-    if (!el || el.dataset.tmlFreshBound) return;
-    el.dataset.tmlFreshBound = '1';
-    el.addEventListener('input', () => {
-      if (el.value.endsWith('/')) openCommandMenu();
-      else if (!el.value.includes(COMMAND_MARKER)) commandMenu?.remove();
-    }, true);
-    el.addEventListener('keydown', event => {
-      if (event.key === 'Escape') removeMenus();
-    }, true);
-  }
+  function closeMenu() { if (menu) menu.style.display = 'none'; }
+
+  function render() { position(); }
 
   function patchFetch() {
-    if (window.__tmlFreshFetchPatched) return;
-    window.__tmlFreshFetchPatched = true;
-    const original = window.fetch;
-
-    window.fetch = async function(inputRequest, init) {
+    if (originalFetch || typeof window.fetch !== 'function') return;
+    originalFetch = window.fetch;
+    window.fetch = async function(request, init) {
       try {
-        const url = typeof inputRequest === 'string' ? inputRequest : inputRequest?.url || '';
-        if (url.endsWith('/api/chat') && init?.body) {
+        const url = typeof request === 'string' ? request : request?.url || '';
+        if (url.endsWith('/api/chat') && init?.body && selected) {
           const body = JSON.parse(init.body);
-          body.mode = 'chat';
-
-          const messages = Array.isArray(body.messages) ? body.messages.slice() : [];
-          let lastUser = -1;
-          for (let i = messages.length - 1; i >= 0; i--) {
-            if (messages[i]?.role === 'user') { lastUser = i; break; }
-          }
-
-          if (lastUser >= 0) {
-            let content = String(messages[lastUser].content || '')
-              .replace(COMMAND_MARKER, '')
-              .trim();
-
-            if (selectedConnector && /gpt\s*[- ]?5\.6\s*luna/i.test(String(body.model || ''))) {
-              if (!/^@GitHub\b/i.test(content)) {
-                content = `@GitHub${content ? ` ${content}` : ''}`;
+          if (/gpt\s*[- ]?5\.6\s*luna/i.test(String(body.model || ''))) {
+            const messages = Array.isArray(body.messages) ? body.messages.slice() : [];
+            for (let i = messages.length - 1; i >= 0; i--) {
+              if (messages[i]?.role === 'user') {
+                const content = String(messages[i].content || '').trim();
+                messages[i] = { ...messages[i], content: /^@GitHub\b/i.test(content) ? content : `@GitHub${content ? ` ${content}` : ''}` };
+                break;
               }
             }
-
-            if (pendingCommand) {
-              const prefix = pendingCommand === 'web'
-                ? '@Web search'
-                : pendingCommand === 'image'
-                  ? '@Create image'
-                  : pendingCommand === 'research'
-                    ? '@Deep research'
-                    : '';
-              if (prefix) {
-                if (/^@GitHub\b/i.test(content)) {
-                  content = content.replace(/^@GitHub\b\s*/i, '');
-                  content = `@GitHub ${prefix}${content ? ` ${content}` : ''}`;
-                } else {
-                  content = `${prefix}${content ? ` ${content}` : ''}`;
-                }
-              }
-              body.codeCommand = pendingCommand === 'code';
-            }
-
-            messages[lastUser] = { ...messages[lastUser], content };
             body.messages = messages;
+            init = { ...init, body: JSON.stringify(body) };
+            selected = false;
+            render();
           }
-
-          selectedConnector = null;
-          pendingCommand = null;
-          removePill();
-          init = { ...init, body: JSON.stringify(body) };
         }
       } catch (_) {}
-      return original.call(this, inputRequest, init);
+      return originalFetch.call(this, request, init);
     };
   }
 
   function reconcile() {
-    installStyles();
-    installPlus();
-    bindCommands();
+    styles();
+    ensureElements();
+    position();
     patchFetch();
   }
 
-  new MutationObserver(reconcile).observe(document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-  window.addEventListener('load', reconcile);
-  window.setInterval(reconcile, 400);
+  document.addEventListener('click', e => {
+    if (menu && menu.style.display === 'block' && !menu.contains(e.target) && e.target !== button) closeMenu();
+  }, true);
+  window.addEventListener('resize', render);
+  window.addEventListener('scroll', render, true);
+  new MutationObserver(reconcile).observe(document.documentElement, { childList: true, subtree: true });
+  window.setInterval(reconcile, 250);
   reconcile();
 })();
