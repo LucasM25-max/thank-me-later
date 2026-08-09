@@ -33,7 +33,10 @@ export default async function handler(req, res) {
     const r = await fetch(`${base}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body: JSON.stringify({ model: process.env.APIBEAM_MODEL || 'gpt-5.6-luna', messages: converted, temperature: 0.7 }) });
     const data = await r.json();
     if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || data?.message || 'ApiBeam request failed' });
-    return res.status(200).json({ text: data?.choices?.[0]?.message?.content || data?.text || 'No response returned.' });
+    const choice = data?.choices?.[0];
+    const message = choice?.message || {};
+    const annotations = message?.annotations || choice?.annotations || data?.annotations || [];
+    return res.status(200).json({ text: message?.content || data?.text || 'No response returned.', annotations });
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'Unexpected server error' });
   }
