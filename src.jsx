@@ -5,6 +5,7 @@ import './style.css';
 
 const models = [
   ['gpt-5.6-luna', 'GPT-5.6 Luna'],
+  ['gpt-5.6-terra', 'GPT-5.6 Terra'],
   ['gemini-pro-latest', 'Gemini Pro'],
   ['gemini-flash-latest', 'Gemini Flash'],
   ['gemini-flash-lite-latest', 'Gemini Flash Lite']
