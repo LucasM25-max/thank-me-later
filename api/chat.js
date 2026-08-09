@@ -32,6 +32,9 @@ export default async function handler(req, res) {
     } : model === 'claude-sonnet-5' ? {
       base: 'https://apibeam.bitsmall.in/app/cjzxbswhe4lw9y7rutrsr',
       model: 'claude-sonnet-5'
+    } : model === 'glm-5.2' ? {
+      base: 'https://apibeam.bitsmall.in/app/8gjkog1269ekxnqffqskgm',
+      model: 'glm-5.2'
     } : null;
     if (!provider) return res.status(400).json({ error: 'Unsupported model' });
 
