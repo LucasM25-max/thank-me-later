@@ -1,12 +1,100 @@
 export const maxDuration = 300;
 
+const TIME_LIMIT_MS = 270000;
+const ABORT_MARKER = '<<ABORTED_BY_TIME_LIMIT>>';
+const CONTINUE_PROMPT = 'Finish the task to completion, continuing from where you left off';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function readStreamingResponse(response, deadline) {
+  if (!response.body) return { text: await response.text(), timedOut: false };
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  let timedOut = false;
+
+  const extract = (raw) => {
+    const lines = raw.split(/\r?\n/);
+    for (const line of lines) {
+      const value = line.startsWith('data:') ? line.slice(5).trim() : '';
+      if (!value || value === '[DONE]') continue;
+      try {
+        const parsed = JSON.parse(value);
+        const delta = parsed?.choices?.[0]?.delta?.content;
+        if (typeof delta === 'string') text += delta;
+        else if (typeof parsed?.choices?.[0]?.message?.content === 'string') text += parsed.choices[0].message.content;
+      } catch {}
+    }
+  };
+
+  while (true) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) { timedOut = true; break; }
+    const result = await Promise.race([
+      reader.read(),
+      sleep(remaining).then(() => ({ timeout: true }))
+    ]);
+    if (result?.timeout) { timedOut = true; break; }
+    if (result.done) {
+      buffer += decoder.decode();
+      extract(buffer);
+      break;
+    }
+    buffer += decoder.decode(result.value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || '';
+    events.forEach(extract);
+  }
+
+  if (timedOut) {
+    try { await reader.cancel(); } catch {}
+  }
+  return { text, timedOut };
+}
+
+async function requestWithTimeLimit(url, body) {
+  const controller = new AbortController();
+  const deadline = Date.now() + TIME_LIMIT_MS;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' },
+      body,
+      signal: controller.signal
+    });
+    const result = await readStreamingResponse(response, deadline);
+    if (result.timedOut) return { response, text: result.text, timedOut: true };
+    return { response, text: result.text, timedOut: false };
+  } finally {
+    try { controller.abort(); } catch {}
+  }
+}
+
+function parseProviderText(text) {
+  const raw = String(text || '');
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch {}
+  if (data && typeof data === 'object') {
+    const content = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.text;
+    return { data, text: typeof content === 'string' ? content : '' };
+  }
+  return { data: null, text: raw };
+}
+
+function isTransient(text, status) {
+  return [408, 429, 500, 502, 503, 504].includes(status) || /(?:gateway\s+timeout|upstream\s+timeout|bad\s+gateway|service\s+unavailable|upstream\s+request)/i.test(String(text || '')) || /^\s*<!doctype html/i.test(String(text || '')) || /^\s*<html[\s>]/i.test(String(text || ''));
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'Method not allowed' }); }
   try {
     const { model, messages, attachments = [], fileContext = '', toolResult = null, webSearch = false, createImage = false } = req.body || {};
     if (!model || !Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: 'Missing model or messages' });
     if (!messages.every((m) => m && ['user', 'assistant', 'system'].includes(m.role) && typeof m.content === 'string')) return res.status(400).json({ error: 'Invalid message format' });
-    const chatPrompt = 'Answer helpfully, accurately and clearly. Preserve conversation context.';
+
+    const timeLimitPrompt = `Complete the user's task thoroughly. You have a maximum working window of 4 minutes 30 seconds for this call. If you are still working when that limit is reached, immediately stop and output your best current response, then put the exact marker ${ABORT_MARKER} as the final text. Never claim the task is complete if it is not. The application will silently continue from your partial response.`;
+    const chatPrompt = `Answer helpfully, accurately and clearly. Preserve conversation context.\n\n${timeLimitPrompt}`;
     const contextualMessages = [{ role: 'system', content: chatPrompt }, ...messages.map((m) => ({ role: m.role, content: m.content }))];
     const lastUserIndex = [...contextualMessages].map((m) => m.role).lastIndexOf('user');
     const commandPrefix = model === 'gpt-5.6-luna' && webSearch ? '@Web search\n' : '';
@@ -15,17 +103,13 @@ export default async function handler(req, res) {
     if (fileContext && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nThe user attached text files. Use their contents as source material:\n${String(fileContext).slice(0, 120000)}`;
     if (toolResult && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nA local tool produced this result. Treat it as supplied tool output: ${String(toolResult).slice(0, 4000)}`;
 
-    // Never impose an artificial 60-second timeout. Long reasoning/code generations must be
-    // allowed to finish. maxDuration above is the serverless runtime's outer boundary.
-    const requestJson = async (url, options = {}) => fetch(url, options);
-
     if (model.startsWith('gemini-')) {
       if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
       const contents = contextualMessages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
       const imageAttachments = attachments.filter((a) => a && a.type?.startsWith('image/') && typeof a.data === 'string');
       if (imageAttachments.length && contents.length) contents[contents.length - 1].parts.push(...imageAttachments.map((a) => ({ inlineData: { mimeType: a.type, data: a.data } })));
       if (!contents.length) return res.status(400).json({ error: 'No usable messages supplied' });
-      const r = await requestJson(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }) });
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }) });
       const data = await r.json();
       if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || 'Gemini request failed' });
       return res.status(200).json({ text: data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || 'No response returned.' });
@@ -33,103 +117,62 @@ export default async function handler(req, res) {
 
     const provider = model === 'gpt-5.6-luna' ? { base: 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf', model: 'gpt-5.6-luna' } : model === 'claude-sonnet-5' ? { base: 'https://apibeam.bitsmall.in/app/cjzxbswhe4lw9y7rutrsr', model: 'claude-sonnet-5' } : model === 'glm-5.2' ? { base: 'https://apibeam.bitsmall.in/app/8gjkog1269ekxnqffqskgm', model: 'glm-5.2' } : null;
     if (!provider) return res.status(400).json({ error: 'Unsupported model' });
+
     const imageParts = attachments.filter((a) => a && a.type?.startsWith('image/') && typeof a.data === 'string').map((a) => ({ type: 'image_url', image_url: { url: `data:${a.type};base64,${a.data}` } }));
     const converted = contextualMessages.map((m, i) => i === contextualMessages.length - 1 && imageParts.length ? { ...m, content: [{ type: 'text', text: m.content }, ...imageParts] } : m);
     const upstreamUrl = `${provider.base}/chat/completions`;
-    const upstreamBody = JSON.stringify({ model: provider.model, messages: converted, temperature: 0.7 });
 
-    // ApiBeam can occasionally return its own HTML Gateway Timeout page (rather than a JSON
-    // error) while the upstream model is still being processed. Treat that as a transient
-    // upstream failure instead of dumping the gateway's HTML into the chat. Retry a few times
-    // with a short backoff, especially for GLM where this has been observed.
-    const transientStatuses = new Set([408, 429, 500, 502, 503, 504]);
-    const transientText = (text) => /(?:gateway\s+timeout|upstream\s+timeout|bad\s+gateway|service\s+unavailable|upstream\s+request)/i.test(String(text || '')) || /^\s*<!doctype html/i.test(String(text || '')) || /^\s*<html[\s>]/i.test(String(text || ''));
-    let r = null;
-    let responseText = '';
-    let lastTransientError = '';
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    // The continuation loop is deliberately inside the same request so the user sees one
+    // uninterrupted answer. Each upstream attempt gets 4m30s, while Vercel's 5-minute duration
+    // is the hard outer boundary. A streaming response lets us retain text already generated
+    // when our internal limit is reached.
+    const MAX_CONTINUATIONS = 20;
+    let workingMessages = converted;
+    let finalText = '';
+    let annotations = [];
+    let lastStatus = 502;
+
+    for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt += 1) {
+      const body = JSON.stringify({ model: provider.model, messages: workingMessages, temperature: 0.7, stream: true });
+      let result;
       try {
-        r = await requestJson(upstreamUrl, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body: upstreamBody });
-        responseText = await r.text();
+        result = await requestWithTimeLimit(upstreamUrl, body);
       } catch (error) {
-        if (attempt === 2) throw error;
-        lastTransientError = error?.message || 'Upstream connection failed';
-        await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
-        continue;
+        if (attempt < 2) { await sleep(1500 * (attempt + 1)); continue; }
+        throw error;
       }
-      const transient = !r.ok && (transientStatuses.has(r.status) || transientText(responseText));
-      if (!transient || r.ok) break;
-      lastTransientError = responseText;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+      const { response, text } = result;
+      lastStatus = response?.status || 502;
+      const parsed = parseProviderText(text);
+      const returnedText = parsed.text || text;
+      if (!response.ok && isTransient(returnedText, response.status)) {
+        if (attempt < 2) { await sleep(1500 * (attempt + 1)); continue; }
+        return res.status(response.status >= 400 && response.status < 600 ? response.status : 502).json({ error: 'The upstream model gateway timed out. Please retry the request.' });
+      }
+      if (!response.ok) return res.status(response.status >= 400 && response.status < 600 ? response.status : 502).json({ error: parsed.data?.error?.message || parsed.data?.message || returnedText?.slice(0, 1000) || 'ApiBeam request failed' });
+
+      if (parsed.data) annotations = parsed.data?.choices?.[0]?.message?.annotations || parsed.data?.annotations || annotations;
+      const markerIndex = returnedText.indexOf(ABORT_MARKER);
+      const partial = markerIndex >= 0 ? returnedText.slice(0, markerIndex).trimEnd() : returnedText.trimEnd();
+      finalText = partial;
+
+      if (!result.timedOut && markerIndex < 0) break;
+
+      // If the provider did not emit the marker itself, the application adds the marker
+      // internally. The marker is never exposed to the user; it is only a continuation signal.
+      const continuation = partial || finalText;
+      workingMessages = [
+        ...workingMessages,
+        { role: 'assistant', content: `${continuation}\n${ABORT_MARKER}` },
+        { role: 'user', content: CONTINUE_PROMPT }
+      ];
     }
 
-    let data = null; try { data = responseText ? JSON.parse(responseText) : null; } catch {}
-    if (!r?.ok) {
-      const htmlGateway = transientText(responseText) && /<\/?(?:html|!doctype)/i.test(responseText);
-      const message = htmlGateway
-        ? `GLM 5.2 upstream gateway timed out after multiple attempts. The provider did not return a model response. Please retry the request.`
-        : data?.error?.message || data?.message || responseText?.slice(0, 1000) || lastTransientError || 'ApiBeam request failed';
-      return res.status(r?.status >= 400 && r?.status < 600 ? r.status : 502).json({ error: message });
-    }
-    if (!data || typeof data !== 'object') return res.status(502).json({ error: 'ApiBeam returned an invalid response.' });
-    const choice = data?.choices?.[0];
-    const message = choice?.message || {};
-    const annotations = message?.annotations || choice?.annotations || data?.annotations || [];
-    const citationSources = [];
-    const seenUrls = new Set();
-    const addSource = (value, fallbackIndex = 0) => {
-      if (!value || typeof value !== 'object') return;
-      const url = value.url || value.source_url || value.href || value.link || value.uri || value.url_citation?.url || value.citation?.url || value.source?.url;
-      if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url) || seenUrls.has(url)) return;
-      const title = value.title || value.name || value.url_citation?.title || value.citation?.title || value.source?.title || '';
-      const refs = [value.id, value.ref, value.citation_id, value.citation?.id, value.citation?.ref, value.url_citation?.id].filter(Boolean).map(String);
-      let domain = ''; try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch {}
-      seenUrls.add(url); citationSources.push({ url, title: String(title || domain || `Source ${fallbackIndex + 1}`), domain, refs });
-    };
-    const walkAnnotations = (value) => { if (!value) return; if (Array.isArray(value)) { value.forEach(walkAnnotations); return; } if (typeof value !== 'object') return; addSource(value, citationSources.length); Object.entries(value).forEach(([key, child]) => { if (!['url', 'source_url', 'href', 'link', 'uri'].includes(key)) walkAnnotations(child); }); };
-    walkAnnotations(annotations);
-
-    let rawText = String(message?.content || data?.text || 'No response returned.');
-    const THREE_CDN = 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.min.js';
-    const augmentHtml = (html) => {
-      const source = String(html || '');
-      if (!/\bTHREE\s*\./.test(source)) return source;
-      if (/<script[^>]+(?:src|type)=["'][^"']*three(?:\.module)?(?:\.min)?\.js[^"']*["'][^>]*>/i.test(source)) return source;
-      if (/https?:\/\/[^"'\s>]*three[^"'\s>]*\.js/i.test(source)) return source;
-      const loader = `<script src="${THREE_CDN}"></script>`;
-      if (/<head\b[^>]*>/i.test(source)) return source.replace(/(<head\b[^>]*>)/i, `$1${loader}`);
-      return loader + source;
-    };
-    const augmentProjectManifest = (text) => {
-      const match = text.match(/```(?:json|project|files)\s*\n([\s\S]*?)```/i);
-      if (!match) return text;
-      try {
-        const project = JSON.parse(match[1]);
-        if (!Array.isArray(project?.files)) return text;
-        let changed = false;
-        const files = project.files.map((file) => {
-          if (!file || typeof file.path !== 'string' || !/\.html?$/i.test(file.path)) return file;
-          const next = augmentHtml(file.content);
-          if (next !== file.content) changed = true;
-          return { ...file, content: next };
-        });
-        if (!changed) return text;
-        const replacement = '```json\n' + JSON.stringify({ ...project, files }, null, 2) + '\n```';
-        return text.slice(0, match.index) + text.slice(match.index).replace(match[0], replacement);
-      } catch { return text; }
-    };
-    rawText = augmentProjectManifest(rawText);
-    const citationRegex = /cite([^]+)/g;
-    const processedText = rawText.replace(citationRegex, (full, rawRefs) => {
-      const refs = String(rawRefs).split(/[,\s]+/).filter(Boolean);
-      const selected = refs.map((ref) => citationSources.find((source) => source.refs.includes(ref))).filter(Boolean);
-      const sources = selected.length ? selected : citationSources.slice(0, Math.max(1, refs.length));
-      if (!sources.length) return '';
-      return sources.map((source) => `[${source.domain || source.title}](${source.url} "citation")`).join(' ');
-    });
-    return res.status(200).json({ text: processedText, annotations });
+    // Defensive cleanup: the internal marker is never shown to the user.
+    finalText = String(finalText || 'No response returned.').replaceAll(ABORT_MARKER, '').trim();
+    return res.status(200).json({ text: finalText || 'No response returned.', annotations });
   } catch (e) {
-    const message = e?.name === 'AbortError' ? 'Upstream request was aborted by the hosting platform' : e?.message || 'Unexpected server error';
+    const message = e?.name === 'AbortError' ? 'The upstream request ended unexpectedly' : e?.message || 'Unexpected server error';
     return res.status(500).json({ error: message });
   }
 }
