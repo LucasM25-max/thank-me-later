@@ -1,0 +1,19 @@
+/* Final overrides for the GPT-5.6 Luna connector UI and collapsed sidebar control. */
+.sidebar-toggle{width:34px!important;min-width:34px!important;max-width:34px!important;height:34px!important;min-height:34px!important;padding:7px!important;display:grid!important;place-items:center!important}
+.sidebar-toggle::after{content:none!important}
+.sidebar-collapsed .sidebar-toggle{transform:rotate(180deg)!important}
+.sidebar-toggle svg{display:block!important;width:17px!important;height:17px!important}
+.tml-connector-button{width:34px!important;height:34px!important;flex:none!important;border:0!important;border-radius:9px!important;background:transparent!important;color:#777!important;display:grid!important;place-items:center!important;cursor:pointer!important;font:500 23px/1 DM Sans,Arial!important;padding:0!important;margin:0!important}
+.tml-connector-button:hover{background:#eeeae3!important;color:#444!important}
+.tml-connector-menu{position:absolute;left:8px;bottom:calc(100% + 10px);width:250px;z-index:70;background:#fff;border:1px solid #ded9d1;border-radius:14px;box-shadow:0 16px 40px #0002;padding:7px}
+.tml-connector-title{padding:8px 10px 7px;font:600 13px DM Sans,Arial;color:#403c37}
+.tml-connector-option{width:100%;border:0;background:transparent;border-radius:10px;padding:9px 10px;display:flex;align-items:center;gap:10px;text-align:left;color:#4b4741;cursor:pointer}
+.tml-connector-option:hover{background:#f1eee8}
+.tml-connector-option span{display:flex;flex-direction:column;gap:2px}
+.tml-connector-option strong{font:600 13px DM Sans,Arial}
+.tml-connector-option small{font:400 11px DM Sans,Arial;color:#888}
+.tml-github-logo{width:18px!important;height:18px!important;display:block!important;flex:none!important;object-fit:contain!important}
+.tml-connector-pill{display:inline-flex!important;align-items:center!important;gap:6px!important;height:28px!important;padding:0 8px!important;border:1px solid #d8d3ca!important;border-radius:999px!important;background:#eeeae5!important;color:#4f4a43!important;font:600 12px/28px DM Sans,Arial!important;margin:0 4px 4px 0!important;box-shadow:0 1px 2px #00000008!important}
+.tml-connector-pill .tml-github-logo{width:15px!important;height:15px!important}
+.tml-connector-pill button{width:16px!important;height:16px!important;margin-left:1px!important;padding:0!important;border:0!important;background:transparent!important;color:#817a71!important;display:grid!important;place-items:center!important;border-radius:50%!important;cursor:pointer!important;font:500 14px/16px Arial!important}
+.tml-connector-pill button:hover{background:#ded9d0!important;color:#403c37!important}
