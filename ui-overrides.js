@@ -1,21 +1,185 @@
 (() => {
+  'use strict';
+
+  /* ================================================================
+     TML COMMAND + CONNECTOR UI
+     Connector UI is self-contained and styled here so it cannot be
+     hidden by the application's existing CSS.
+     ================================================================ */
+
+  const COMMAND_MARKER = '\u2063[TML_COMMAND]\u2063';
+  let pendingCommand = null;
+  let selectedConnector = null;
   let commandMenu = null;
   let connectorMenu = null;
-  let pendingCommand = null;
-  let connector = null;
-  const COMMAND_MARKER = '\u2063[TML_COMMAND]\u2063';
 
-  const qs = (s, root = document) => root.querySelector(s);
-  const composer = () => qs('.composer');
-  const textarea = () => qs('.composer textarea') || qs('textarea');
-  const modelName = () => qs('.model > button')?.textContent?.replace(/\s+/g, ' ').trim() || '';
-  const luna = () => /gpt[\s-]*5\.6[\s-]*luna/i.test(modelName());
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const composer = () => $('.composer');
+  const input = () => $('.composer textarea') || $('textarea');
+  const model = () => $('.model > button')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+  const isLuna = () => /gpt\s*[- ]?5\.6\s*luna/i.test(model());
 
-  const remove = el => { if (el) el.remove(); };
-  const closeMenus = () => { remove(commandMenu); commandMenu = null; remove(connectorMenu); connectorMenu = null; };
+  function installStyles() {
+    if ($('#tml-fresh-connector-css')) return;
+    const style = document.createElement('style');
+    style.id = 'tml-fresh-connector-css';
+    style.textContent = `
+      .composer .tml-fresh-plus {
+        all: unset !important;
+        box-sizing: border-box !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex: 0 0 36px !important;
+        width: 36px !important;
+        min-width: 36px !important;
+        max-width: 36px !important;
+        height: 36px !important;
+        min-height: 36px !important;
+        max-height: 36px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 9px !important;
+        background: transparent !important;
+        color: #625d55 !important;
+        cursor: pointer !important;
+        font: 400 26px/36px Arial, sans-serif !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        position: relative !important;
+        z-index: 9999 !important;
+        transform: none !important;
+      }
+      .composer .tml-fresh-plus:hover {
+        background: #eeeae3 !important;
+        color: #24211e !important;
+      }
+      .composer .tml-fresh-plus span {
+        all: unset !important;
+        display: block !important;
+        font: 400 26px/36px Arial, sans-serif !important;
+        color: inherit !important;
+      }
 
-  function setValue(value) {
-    const el = textarea();
+      .composer .tml-fresh-pill {
+        all: unset !important;
+        box-sizing: border-box !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        flex: 0 0 auto !important;
+        align-self: flex-end !important;
+        height: 28px !important;
+        min-height: 28px !important;
+        margin: 0 6px 5px 2px !important;
+        padding: 0 7px !important;
+        gap: 5px !important;
+        border: 1px solid #d6d1c8 !important;
+        border-radius: 999px !important;
+        background: #eeeae5 !important;
+        color: #504b44 !important;
+        font: 600 12px/28px DM Sans, Arial, sans-serif !important;
+        white-space: nowrap !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
+      .composer .tml-fresh-pill img {
+        width: 15px !important;
+        height: 15px !important;
+        display: block !important;
+        flex: 0 0 15px !important;
+      }
+      .composer .tml-fresh-pill .tml-pill-remove {
+        all: unset !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 17px !important;
+        height: 17px !important;
+        border-radius: 50% !important;
+        color: #777168 !important;
+        cursor: pointer !important;
+        font: 400 15px/17px Arial, sans-serif !important;
+      }
+      .composer .tml-fresh-pill .tml-pill-remove:hover {
+        background: #ded9d0 !important;
+        color: #292621 !important;
+      }
+
+      .composer .tml-fresh-menu {
+        position: absolute !important;
+        left: 7px !important;
+        bottom: calc(100% + 9px) !important;
+        width: 270px !important;
+        box-sizing: border-box !important;
+        padding: 7px !important;
+        background: #fff !important;
+        border: 1px solid #ded9d1 !important;
+        border-radius: 14px !important;
+        box-shadow: 0 16px 40px rgba(0,0,0,.16) !important;
+        z-index: 10000 !important;
+      }
+      .composer .tml-fresh-menu-title {
+        padding: 8px 10px !important;
+        color: #403c37 !important;
+        font: 600 13px/18px DM Sans, Arial, sans-serif !important;
+      }
+      .composer .tml-fresh-github {
+        all: unset !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+        min-height: 50px !important;
+        padding: 9px 10px !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        border-radius: 10px !important;
+        cursor: pointer !important;
+        color: #403c37 !important;
+      }
+      .composer .tml-fresh-github:hover { background: #f1eee8 !important; }
+      .composer .tml-fresh-github img {
+        width: 21px !important;
+        height: 21px !important;
+        display: block !important;
+      }
+      .composer .tml-fresh-github-text {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 2px !important;
+      }
+      .composer .tml-fresh-github-text strong {
+        font: 600 13px/17px DM Sans, Arial, sans-serif !important;
+      }
+      .composer .tml-fresh-github-text small {
+        color: #888 !important;
+        font: 400 11px/15px DM Sans, Arial, sans-serif !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function githubLogo() {
+    const img = document.createElement('img');
+    img.src = 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png';
+    img.alt = '';
+    img.setAttribute('aria-hidden', 'true');
+    return img;
+  }
+
+  function removeMenus() {
+    commandMenu?.remove();
+    connectorMenu?.remove();
+    commandMenu = null;
+    connectorMenu = null;
+  }
+
+  function removePill() {
+    document.querySelectorAll('.tml-fresh-pill').forEach(el => el.remove());
+  }
+
+  function setInputValue(value) {
+    const el = input();
     if (!el) return;
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
     if (setter) setter.call(el, value); else el.value = value;
@@ -23,210 +187,280 @@
     el.focus();
   }
 
-  function githubIcon(size = 16) {
-    const span = document.createElement('span');
-    span.className = 'tml-github-icon';
-    span.style.width = `${size}px`;
-    span.style.height = `${size}px`;
-    span.textContent = '●';
-    span.setAttribute('aria-hidden', 'true');
-    return span;
-  }
-
-  function makePill() {
-    const el = textarea();
-    if (!el) return;
-    document.querySelectorAll('.tml-connector-pill').forEach(remove);
-    if (!connector || !luna()) return;
+  function renderPill() {
+    removePill();
+    const box = composer();
+    const el = input();
+    if (!box || !el || !selectedConnector || !isLuna()) return;
 
     const pill = document.createElement('span');
-    pill.className = 'tml-connector-pill';
-    pill.append(githubIcon(15));
-    const label = document.createElement('span');
-    label.textContent = connector;
-    pill.append(label);
-    const x = document.createElement('button');
-    x.type = 'button';
-    x.className = 'tml-connector-remove';
-    x.textContent = '×';
-    x.setAttribute('aria-label', 'Remove GitHub connector');
-    x.onclick = e => { e.preventDefault(); e.stopPropagation(); connector = null; makePill(); el.focus(); };
-    pill.append(x);
+    pill.className = 'tml-fresh-pill';
+    pill.appendChild(githubLogo());
 
-    // The pill is a sibling immediately before the textarea, inside the same
-    // text-entry row. It can therefore never render in a separate row above it.
-    el.parentElement?.insertBefore(pill, el);
+    const label = document.createElement('span');
+    label.textContent = selectedConnector;
+    pill.appendChild(label);
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'tml-pill-remove';
+    removeButton.textContent = '×';
+    removeButton.setAttribute('aria-label', 'Remove GitHub connector');
+    removeButton.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectedConnector = null;
+      renderPill();
+      el.focus();
+    });
+    pill.appendChild(removeButton);
+
+    // Same flex row as the textarea: immediately before the text itself.
+    el.parentNode.insertBefore(pill, el);
   }
 
   function openConnectorMenu() {
-    remove(connectorMenu);
+    connectorMenu?.remove();
     const box = composer();
-    const plus = qs('.tml-connector-button');
-    if (!box || !plus || !luna()) return;
+    if (!box || !isLuna()) return;
 
     connectorMenu = document.createElement('div');
-    connectorMenu.className = 'tml-connector-menu';
-    connectorMenu.innerHTML = '<div class="tml-connector-heading">Connectors</div>';
+    connectorMenu.className = 'tml-fresh-menu';
+
+    const title = document.createElement('div');
+    title.className = 'tml-fresh-menu-title';
+    title.textContent = 'Connectors';
+    connectorMenu.appendChild(title);
 
     const github = document.createElement('button');
     github.type = 'button';
-    github.className = 'tml-connector-choice';
-    github.append(githubIcon(20));
+    github.className = 'tml-fresh-github';
+    github.appendChild(githubLogo());
+
     const text = document.createElement('span');
-    text.innerHTML = '<strong>GitHub</strong><small>Connect GitHub to this prompt</small>';
-    github.append(text);
-    github.onclick = e => {
-      e.preventDefault();
-      e.stopPropagation();
-      connector = 'GitHub';
-      makePill();
-      remove(connectorMenu);
+    text.className = 'tml-fresh-github-text';
+    const name = document.createElement('strong');
+    name.textContent = 'GitHub';
+    const description = document.createElement('small');
+    description.textContent = 'Connect GitHub to this prompt';
+    text.append(name, description);
+    github.appendChild(text);
+
+    github.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectedConnector = 'GitHub';
+      connectorMenu?.remove();
       connectorMenu = null;
-      textarea()?.focus();
-    };
-    connectorMenu.append(github);
-    box.append(connectorMenu);
+      renderPill();
+      input()?.focus();
+    });
+
+    connectorMenu.appendChild(github);
+    box.appendChild(connectorMenu);
+  }
+
+  function findFileControl(box) {
+    return Array.from(box.querySelectorAll('label,button')).find(node => {
+      if (node.classList.contains('tml-fresh-plus')) return false;
+      const metadata = [
+        node.getAttribute('aria-label'),
+        node.getAttribute('title'),
+        node.textContent
+      ].filter(Boolean).join(' ');
+      return /attach|file|upload/i.test(metadata);
+    });
   }
 
   function installPlus() {
     const box = composer();
-    const el = textarea();
+    const el = input();
     if (!box || !el) return;
 
-    let plus = qs('.tml-connector-button', box);
-    if (!luna()) {
-      remove(plus);
-      remove(connectorMenu);
-      document.querySelectorAll('.tml-connector-pill').forEach(remove);
-      connector = null;
+    let plus = box.querySelector('.tml-fresh-plus');
+
+    if (!isLuna()) {
+      plus?.remove();
+      removePill();
+      connectorMenu?.remove();
+      connectorMenu = null;
+      selectedConnector = null;
       return;
     }
 
     if (!plus) {
       plus = document.createElement('button');
       plus.type = 'button';
-      plus.className = 'tml-connector-button';
-      plus.setAttribute('aria-label', 'Connectors');
+      plus.className = 'tml-fresh-plus';
       plus.title = 'Connectors';
-      plus.textContent = '+';
-      plus.onclick = e => {
-        e.preventDefault();
-        e.stopPropagation();
+      plus.setAttribute('aria-label', 'Connectors');
+
+      const symbol = document.createElement('span');
+      symbol.textContent = '+';
+      plus.appendChild(symbol);
+
+      plus.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
         openConnectorMenu();
-      };
-      // Put it directly before the file/attachment control when possible.
-      const file = Array.from(box.querySelectorAll('label,button')).find(node => {
-        if (node === plus) return false;
-        const s = `${node.getAttribute('title') || ''} ${node.getAttribute('aria-label') || ''} ${node.textContent || ''}`;
-        return /attach|file|upload/i.test(s);
       });
-      if (file) file.parentNode.insertBefore(plus, file.nextSibling);
-      else el.parentElement?.insertBefore(plus, el);
+
+      const file = findFileControl(box);
+      if (file) {
+        // Exact requested location: immediately after the file button.
+        file.insertAdjacentElement('afterend', plus);
+      } else {
+        // Guaranteed fallback inside the actual composer row.
+        el.parentNode.insertBefore(plus, el);
+      }
     }
 
-    // Keep it visible even if the app rerenders the composer.
-    plus.style.display = 'inline-grid';
-    plus.style.visibility = 'visible';
-    plus.style.opacity = '1';
-    plus.style.flex = '0 0 34px';
-    plus.style.width = '34px';
-    plus.style.height = '34px';
-    plus.style.minWidth = '34px';
-    plus.style.minHeight = '34px';
-    plus.style.position = 'relative';
-    plus.style.zIndex = '100';
-    makePill();
+    // Reassert visibility every reconciliation cycle.
+    plus.hidden = false;
+    plus.disabled = false;
+    plus.style.setProperty('display', 'flex', 'important');
+    plus.style.setProperty('visibility', 'visible', 'important');
+    plus.style.setProperty('opacity', '1', 'important');
+    plus.style.setProperty('pointer-events', 'auto', 'important');
+    plus.style.setProperty('z-index', '9999', 'important');
+
+    renderPill();
   }
 
-  function commandPill(label) {
-    document.querySelectorAll('.tml-command-pill').forEach(remove);
-    const el = textarea();
-    if (!el) return;
-    const p = document.createElement('span');
-    p.className = 'tml-command-pill';
-    p.textContent = label;
-    el.parentElement?.insertBefore(p, el);
-  }
-
-  function commandMenu() {
-    remove(commandMenu);
+  function openCommandMenu() {
+    commandMenu?.remove();
     const box = composer();
     if (!box) return;
+
     commandMenu = document.createElement('div');
-    commandMenu.className = 'command-menu';
-    const items = [];
-    if (luna()) items.push(['web', 'Web search', 'Search current information']);
-    if (luna()) items.push(['image', 'Create image', 'Create an image']);
-    if (luna()) items.push(['research', 'Deep research', 'Research the request']);
-    items.push(['code', 'Code', 'Use coding mode']);
-    items.forEach(([kind, label, description]) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.innerHTML = `<strong>${label}</strong><span>${description}</span>`;
-      b.onclick = e => {
-        e.preventDefault(); e.stopPropagation();
-        const el = textarea(); if (!el) return;
+    commandMenu.className = 'tml-fresh-menu';
+    const title = document.createElement('div');
+    title.className = 'tml-fresh-menu-title';
+    title.textContent = 'Commands';
+    commandMenu.appendChild(title);
+
+    const choices = [];
+    if (isLuna()) {
+      choices.push(['web', 'Web search', 'Search current information']);
+      choices.push(['image', 'Create image', 'Create an image']);
+      choices.push(['research', 'Deep research', 'Research the request']);
+    }
+    choices.push(['code', 'Code', 'Use coding mode']);
+
+    choices.forEach(([kind, label, description]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.style.cssText = 'all:unset!important;box-sizing:border-box!important;width:100%!important;padding:10px!important;display:flex!important;flex-direction:column!important;gap:2px!important;border-radius:9px!important;cursor:pointer!important;';
+      const strong = document.createElement('strong');
+      strong.textContent = label;
+      const small = document.createElement('small');
+      small.textContent = description;
+      small.style.cssText = 'color:#888!important;font:400 11px/15px DM Sans,Arial,sans-serif!important;';
+      button.append(strong, small);
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const el = input();
+        if (!el) return;
         const current = el.value.replace(/\/$/, '').replace(/^\u2063\[TML_COMMAND\]\u2063\s*/, '').trimStart();
         pendingCommand = kind;
-        setValue(`${COMMAND_MARKER}${current ? ` ${current}` : ''}`);
-        commandPill(kind === 'code' ? 'Code' : kind === 'web' ? 'Web search' : kind === 'image' ? 'Create image' : 'Deep research');
-        remove(commandMenu); commandMenu = null;
-      };
-      commandMenu.append(b);
+        setInputValue(`${COMMAND_MARKER}${current ? ` ${current}` : ''}`);
+        commandMenu?.remove();
+        commandMenu = null;
+      });
+      commandMenu.appendChild(button);
     });
-    box.append(commandMenu);
+
+    box.appendChild(commandMenu);
   }
 
-  function patchSend() {
-    if (window.__tmlConnectorSendPatched) return;
+  function bindCommands() {
+    const el = input();
+    if (!el || el.dataset.tmlFreshBound) return;
+    el.dataset.tmlFreshBound = '1';
+    el.addEventListener('input', () => {
+      if (el.value.endsWith('/')) openCommandMenu();
+      else if (!el.value.includes(COMMAND_MARKER)) commandMenu?.remove();
+    }, true);
+    el.addEventListener('keydown', event => {
+      if (event.key === 'Escape') removeMenus();
+    }, true);
+  }
+
+  function patchFetch() {
+    if (window.__tmlFreshFetchPatched) return;
+    window.__tmlFreshFetchPatched = true;
     const original = window.fetch;
-    window.fetch = async (input, init) => {
+
+    window.fetch = async function(inputRequest, init) {
       try {
-        const url = typeof input === 'string' ? input : input?.url || '';
+        const url = typeof inputRequest === 'string' ? inputRequest : inputRequest?.url || '';
         if (url.endsWith('/api/chat') && init?.body) {
           const body = JSON.parse(init.body);
           body.mode = 'chat';
-          if (Array.isArray(body.messages) && body.messages.length) {
-            const last = body.messages[body.messages.length - 1];
-            if (last?.role === 'user') {
-              let content = String(last.content || '').replace(COMMAND_MARKER, '').trim();
-              if (connector && /gpt[\s-]*5\.6[\s-]*luna/i.test(String(body.model || ''))) {
-                if (!/^@GitHub\b/i.test(content)) content = `@GitHub${content ? ` ${content}` : ''}`;
-              }
-              if (pendingCommand) {
-                const prefix = pendingCommand === 'web' ? '@Web search' : pendingCommand === 'image' ? '@Create image' : pendingCommand === 'research' ? '@Deep research' : '';
-                if (prefix) content = `${prefix}${content ? ` ${content}` : ''}`;
-                body.codeCommand = pendingCommand === 'code';
-              }
-              body.messages = body.messages.map((m, i) => i === body.messages.length - 1 ? { ...m, content } : m);
-            }
+
+          const messages = Array.isArray(body.messages) ? body.messages.slice() : [];
+          let lastUser = -1;
+          for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i]?.role === 'user') { lastUser = i; break; }
           }
-          connector = null;
+
+          if (lastUser >= 0) {
+            let content = String(messages[lastUser].content || '')
+              .replace(COMMAND_MARKER, '')
+              .trim();
+
+            if (selectedConnector && /gpt\s*[- ]?5\.6\s*luna/i.test(String(body.model || ''))) {
+              if (!/^@GitHub\b/i.test(content)) {
+                content = `@GitHub${content ? ` ${content}` : ''}`;
+              }
+            }
+
+            if (pendingCommand) {
+              const prefix = pendingCommand === 'web'
+                ? '@Web search'
+                : pendingCommand === 'image'
+                  ? '@Create image'
+                  : pendingCommand === 'research'
+                    ? '@Deep research'
+                    : '';
+              if (prefix) {
+                if (/^@GitHub\b/i.test(content)) {
+                  content = content.replace(/^@GitHub\b\s*/i, '');
+                  content = `@GitHub ${prefix}${content ? ` ${content}` : ''}`;
+                } else {
+                  content = `${prefix}${content ? ` ${content}` : ''}`;
+                }
+              }
+              body.codeCommand = pendingCommand === 'code';
+            }
+
+            messages[lastUser] = { ...messages[lastUser], content };
+            body.messages = messages;
+          }
+
+          selectedConnector = null;
           pendingCommand = null;
-          document.querySelectorAll('.tml-connector-pill,.tml-command-pill').forEach(remove);
+          removePill();
           init = { ...init, body: JSON.stringify(body) };
         }
       } catch (_) {}
-      return original(input, init);
+      return original.call(this, inputRequest, init);
     };
-    window.__tmlConnectorSendPatched = true;
   }
 
-  function bind() {
+  function reconcile() {
+    installStyles();
     installPlus();
-    const el = textarea();
-    if (el && !el.dataset.tmlCommandsBound) {
-      el.dataset.tmlCommandsBound = '1';
-      el.addEventListener('input', () => {
-        if (el.value.endsWith('/')) commandMenu();
-        else if (!el.value.includes(COMMAND_MARKER)) remove(commandMenu);
-      }, true);
-      el.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); }, true);
-    }
-    patchSend();
+    bindCommands();
+    patchFetch();
   }
 
-  new MutationObserver(bind).observe(document.documentElement, { childList: true, subtree: true });
-  window.setInterval(bind, 300);
-  bind();
+  new MutationObserver(reconcile).observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
+  window.addEventListener('load', reconcile);
+  window.setInterval(reconcile, 400);
+  reconcile();
 })();
