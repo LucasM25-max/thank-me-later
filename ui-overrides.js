@@ -1,8 +1,7 @@
 (() => {
-  const CODE_MARKER = '\u2063[TML_CODE_COMMAND]\u2063';
   let menu = null;
-  let codeSelected = false;
-  let suppressNextSlash = false;
+  let pendingCommand = null;
+  const COMMAND_MARKER = '\u2063[TML_COMMAND]\u2063';
 
   const getComposer = () => document.querySelector('.composer');
   const getTextarea = () => document.querySelector('.composer textarea') || document.querySelector('textarea');
@@ -15,10 +14,7 @@
     document.querySelectorAll('.sidebar-collapsed .chat-row').forEach(el => el.style.display = 'none');
   }
 
-  function closeMenu() {
-    menu?.remove();
-    menu = null;
-  }
+  function closeMenu() { menu?.remove(); menu = null; }
 
   function setReactTextarea(value) {
     const textarea = getTextarea();
@@ -29,23 +25,27 @@
     textarea.focus();
   }
 
+  function addPill(label) {
+    const pending = document.querySelector('.pending');
+    if (!pending) return;
+    pending.querySelectorAll('.tml-command-pill').forEach(p => p.remove());
+    const pill = document.createElement('span');
+    pill.className = 'tml-command-pill';
+    pill.textContent = label;
+    pending.prepend(pill);
+  }
+
   function selectCommand(kind) {
     const textarea = getTextarea();
     if (!textarea) return;
-    const current = textarea.value.replace(/\/$/, '').trimStart();
+    const current = textarea.value.replace(/\/$/, '').replace(/^\u2063\[TML_COMMAND\]\u2063\s*/, '').trimStart();
+    pendingCommand = kind;
     if (kind === 'code') {
-      codeSelected = true;
-      setReactTextarea(`${CODE_MARKER}${current ? ` ${current}` : ''}`);
+      setReactTextarea(`${COMMAND_MARKER}${current ? ` ${current}` : ''}`);
+      addPill('Code');
     } else {
-      codeSelected = false;
-      setReactTextarea(current);
-      const pill = document.createElement('span');
-      pill.className = 'tml-command-pill';
-      pill.textContent = kind === 'web' ? 'Web search' : kind === 'image' ? 'Create image' : 'Deep research';
-      pill.dataset.command = kind;
-      const pending = document.querySelector('.pending');
-      if (pending) pending.prepend(pill);
-      if (kind === 'web') document.querySelector('.web-pill')?.click?.();
+      setReactTextarea(`${COMMAND_MARKER}${current ? ` ${current}` : ''}`);
+      addPill(kind === 'web' ? 'Web search' : kind === 'image' ? 'Create image' : 'Deep research');
     }
     closeMenu();
   }
@@ -78,12 +78,10 @@
     if (textarea && !textarea.dataset.tmlBound) {
       textarea.dataset.tmlBound = '1';
       textarea.addEventListener('input', () => {
-        if (textarea.value.endsWith('/') && !suppressNextSlash) makeMenu();
-        else if (!textarea.value.endsWith('/')) closeMenu();
+        if (textarea.value.endsWith('/')) makeMenu();
+        else if (!textarea.value.includes(COMMAND_MARKER)) closeMenu();
       }, true);
-      textarea.addEventListener('keydown', e => {
-        if (e.key === 'Escape') closeMenu();
-      }, true);
+      textarea.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); }, true);
     }
     if (!document.body.dataset.tmlFetchPatched) patchFetch();
   }
@@ -96,10 +94,17 @@
         if (url.endsWith('/api/chat') && init?.body) {
           const body = JSON.parse(init.body);
           body.mode = 'chat';
-          if (codeSelected) {
-            body.codeCommand = true;
-            body.messages = Array.isArray(body.messages) ? body.messages.map((m, i) => i === body.messages.length - 1 ? { ...m, content: String(m.content || '').replace(CODE_MARKER, '').trim() } : m) : body.messages;
-            codeSelected = false;
+          if (pendingCommand) {
+            const command = pendingCommand;
+            const prefix = command === 'web' ? '@Web search' : command === 'image' ? '@Create image' : command === 'research' ? '@Deep research' : '';
+            body.messages = Array.isArray(body.messages) ? body.messages.map((m, i) => {
+              if (i !== body.messages.length - 1) return m;
+              let content = String(m.content || '').replace(COMMAND_MARKER, '').trim();
+              if (prefix) content = `${prefix}${content ? ` ${content}` : ''}`;
+              return { ...m, content };
+            }) : body.messages;
+            body.codeCommand = command === 'code';
+            pendingCommand = null;
           }
           init = { ...init, body: JSON.stringify(body) };
         }
@@ -109,7 +114,7 @@
     document.body.dataset.tmlFetchPatched = '1';
   }
 
-  new MutationObserver(() => bind()).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(bind).observe(document.documentElement, { childList: true, subtree: true });
   setInterval(bind, 700);
   bind();
 })();
