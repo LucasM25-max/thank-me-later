@@ -183,6 +183,7 @@
               if (/^@GitHub\b/i.test(content)) return m;
               return { ...m, content: `@${selectedConnector}${content ? ` ${content}` : ''}` };
             }) : body.messages;
+            selectedConnector = null;
           }
           if (pendingCommand) {
             const command = pendingCommand;
