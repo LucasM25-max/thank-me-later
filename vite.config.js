@@ -5,10 +5,18 @@ const injectMinimaxModel = () => ({
   name: 'inject-minimax-m3-model',
   transform(code, id) {
     if (!id.endsWith('/src-code-env.jsx')) return null
-    const marker = "  ['gemini-flash-lite-latest', 'Gemini Flash Lite']\n"
-    const replacement = `${marker}  ['minimax-m3', 'Minimax M3']\n`
-    if (!code.includes(marker) || code.includes("['minimax-m3', 'Minimax M3']")) return null
-    return { code: code.replace(marker, replacement), map: null }
+    const modelBlock = /const models = \[[\s\S]*?\n\];/
+    const replacement = `const models = [
+  ['gpt-5.6-luna', 'GPT-5.6 Luna'],
+  ['claude-sonnet-5', 'Claude Sonnet 5'],
+  ['glm-5.2', 'GLM 5.2'],
+  ['gemini-pro-latest', 'Gemini Pro'],
+  ['gemini-flash-latest', 'Gemini Flash'],
+  ['gemini-flash-lite-latest', 'Gemini Flash Lite'],
+  ['minimax-m3', 'Minimax M3']
+];`
+    if (!modelBlock.test(code)) return null
+    return { code: code.replace(modelBlock, replacement), map: null }
   }
 })
 
