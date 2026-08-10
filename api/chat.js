@@ -5,28 +5,13 @@ const ABORT_MARKER = '<<ABORTED_BY_TIME_LIMIT>>';
 const CONTINUE_PROMPT = 'Finish the task to completion, continuing from where you left off';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function readStreamingResponse(response, deadline) {
-  if (!response.body) return { text: await response.text(), timedOut: false };
-  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let text = ''; let timedOut = false;
-  const extract = (raw) => { for (const line of raw.split(/\r?\n/)) { const value = line.startsWith('data:') ? line.slice(5).trim() : ''; if (!value || value === '[DONE]') continue; try { const parsed = JSON.parse(value); const delta = parsed?.choices?.[0]?.delta?.content; if (typeof delta === 'string') text += delta; else if (typeof parsed?.choices?.[0]?.message?.content === 'string') text += parsed.choices[0].message.content; } catch {} } };
-  while (true) { const remaining = deadline - Date.now(); if (remaining <= 0) { timedOut = true; break; } const result = await Promise.race([reader.read(), sleep(remaining).then(() => ({ timeout: true }))]); if (result?.timeout) { timedOut = true; break; } if (result.done) { buffer += decoder.decode(); extract(buffer); break; } buffer += decoder.decode(result.value, { stream: true }); const events = buffer.split(/\r?\n\r?\n/); buffer = events.pop() || ''; events.forEach(extract); }
-  if (timedOut) { try { await reader.cancel(); } catch {} } return { text, timedOut };
-}
+async function readStreamingResponse(response, deadline) { const reader = response.body?.getReader?.(); if (!reader) return { text: await response.text(), timedOut: false }; const decoder = new TextDecoder(); let buffer = ''; let text = ''; let timedOut = false; const extract = (raw) => { for (const line of raw.split(/\r?\n/)) { const value = line.startsWith('data:') ? line.slice(5).trim() : ''; if (!value || value === '[DONE]') continue; try { const parsed = JSON.parse(value); const delta = parsed?.choices?.[0]?.delta?.content; if (typeof delta === 'string') text += delta; else if (typeof parsed?.choices?.[0]?.message?.content === 'string') text += parsed.choices[0].message.content; } catch {} } }; while (true) { const remaining = deadline - Date.now(); if (remaining <= 0) { timedOut = true; break; } const result = await Promise.race([reader.read(), sleep(remaining).then(() => ({ timeout: true }))]); if (result?.timeout) { timedOut = true; break; } if (result.done) { buffer += decoder.decode(); extract(buffer); break; } buffer += decoder.decode(result.value, { stream: true }); const events = buffer.split(/\r?\n\r?\n/); buffer = events.pop() || ''; events.forEach(extract); } if (timedOut) { try { await reader.cancel(); } catch {} } return { text, timedOut }; }
 
 async function requestWithTimeLimit(url, body) { const controller = new AbortController(); const deadline = Date.now() + TIME_LIMIT_MS; try { const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer not-needed' }, body, signal: controller.signal }); const result = await readStreamingResponse(response, deadline); return { response, text: result.text, timedOut: result.timedOut }; } finally { try { controller.abort(); } catch {} } }
 
-function extractImages(value) {
-  const images = [];
-  const add = (url, alt = 'Generated image') => { if (typeof url === 'string' && /^(https?:\/\/|data:image\/)/i.test(url) && !images.some((image) => image.url === url)) images.push({ url, alt }); };
-  const walk = (value) => { if (!value) return; if (Array.isArray(value)) { value.forEach(walk); return; } if (typeof value !== 'object') return; if (value.type === 'image_url') add(value.image_url?.url || value.url, value.alt || 'Generated image'); else if (value.type === 'image') add(value.image_url?.url || value.url || value.data, value.alt || 'Generated image'); if (value.url && (value.mime_type?.startsWith?.('image/') || value.type === 'image')) add(value.url, value.alt || 'Generated image'); if (value.image_url?.url) add(value.image_url.url, value.alt || 'Generated image'); if (value.images) walk(value.images); if (value.data && typeof value.data === 'string' && /^iVBOR|^\/9j\//.test(value.data)) add(`data:image/png;base64,${value.data}`); };
-  walk(value); return images.slice(0, 8);
-}
+function extractImages(value) { const images = []; const add = (url, alt = 'Generated image', mimeType = '') => { if (typeof url !== 'string') return; const normalized = /^data:image\//i.test(url) || /^https?:\/\//i.test(url) ? url : mimeType.startsWith('image/') ? `data:${mimeType};base64,${url}` : ''; if (normalized && !images.some((image) => image.url === normalized)) images.push({ url: normalized, alt }); }; const walk = (value) => { if (!value) return; if (Array.isArray(value)) { value.forEach(walk); return; } if (typeof value !== 'object') return; if (value.type === 'image_url') add(value.image_url?.url || value.url, value.alt || 'Generated image'); else if (value.type === 'image') add(value.image_url?.url || value.url || value.data, value.alt || 'Generated image', value.mime_type || value.mimeType || ''); if (value.inlineData?.data) add(value.inlineData.data, value.alt || 'Generated image', value.inlineData.mimeType || 'image/png'); if (value.inline_data?.data) add(value.inline_data.data, value.alt || 'Generated image', value.inline_data.mime_type || 'image/png'); if (value.url && value.mime_type?.startsWith?.('image/')) add(value.url, value.alt || 'Generated image', value.mime_type); if (value.image_url?.url) add(value.image_url.url, value.alt || 'Generated image'); if (value.images) walk(value.images); if (value.output) walk(value.output); if (value.data && typeof value.data === 'string' && /^iVBOR|^\/9j\//.test(value.data)) add(value.data, value.alt || 'Generated image', value.mime_type || value.mimeType || 'image/png'); }; walk(value); return images.slice(0, 8); }
 
-function parseProviderText(text) {
-  const raw = String(text || ''); let data = null; try { data = raw ? JSON.parse(raw) : null; } catch {}
-  if (data && typeof data === 'object') { const message = data?.choices?.[0]?.message; const content = message?.content ?? data?.choices?.[0]?.text ?? data?.text; let extractedText = ''; if (typeof content === 'string') extractedText = content; else if (Array.isArray(content)) extractedText = content.filter((part) => typeof part?.text === 'string').map((part) => part.text).join(''); const images = extractImages(message?.images || content || data?.images || data?.output); return { data, text: extractedText, images }; }
-  return { data: null, text: raw, images: [] };
-}
+function parseProviderText(text) { const raw = String(text || ''); let data = null; try { data = raw ? JSON.parse(raw) : null; } catch {} if (data && typeof data === 'object') { const message = data?.choices?.[0]?.message; const content = message?.content ?? data?.choices?.[0]?.text ?? data?.text; let extractedText = ''; if (typeof content === 'string') extractedText = content; else if (Array.isArray(content)) extractedText = content.filter((part) => typeof part?.text === 'string').map((part) => part.text).join(''); const images = extractImages(message?.images || content || data?.images || data?.output); return { data, text: extractedText, images }; } return { data: null, text: raw, images: [] }; }
 
 function isTransient(text, status) { return [408, 429, 500, 502, 503, 504].includes(status) || /(?:gateway\s+timeout|upstream\s+timeout|bad\s+gateway|service\s+unavailable|upstream\s+request)/i.test(String(text || '')) || /^\s*<!doctype html/i.test(String(text || '')) || /^\s*<html[\s>]/i.test(String(text || '')); }
 
@@ -48,13 +33,18 @@ export default async function handler(req, res) {
 
     if (model.startsWith('gemini-')) {
       if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
+      const effectiveModel = createImage ? 'gemini-3.1-flash-lite-image' : model;
       const contents = contextualMessages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
       const imageAttachments = attachments.filter((a) => a && a.type?.startsWith('image/') && typeof a.data === 'string');
       if (imageAttachments.length && contents.length) contents[contents.length - 1].parts.push(...imageAttachments.map((a) => ({ inlineData: { mimeType: a.type, data: a.data } })));
       if (!contents.length) return res.status(400).json({ error: 'No usable messages supplied' });
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }) });
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(effectiveModel)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }) });
       const data = await r.json(); if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || 'Gemini request failed' });
-      return res.status(200).json({ text: data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || 'No response returned.', images: extractImages(data?.candidates?.[0]?.content?.parts) });
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const text = parts.map((p) => p.text || '').join('');
+      const images = extractImages(parts);
+      const imageMarkdown = images.map((image) => `![${String(image.alt || 'Generated image').replace(/[\[\]]/g, '')}](${image.url})`).join('\n\n');
+      return res.status(200).json({ text: [text, imageMarkdown].filter(Boolean).join('\n\n') || 'No response returned.', images });
     }
 
     const provider = model === 'gpt-5.6-luna' ? { base: 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf', model: 'gpt-5.6-luna' } : model === 'claude-sonnet-5' ? { base: 'https://apibeam.bitsmall.in/app/cjzxbswhe4lw9y7rutrsr', model: 'claude-sonnet-5' } : model === 'glm-5.2' ? { base: 'https://apibeam.bitsmall.in/app/8gjkog1269ekxnqffqskgm', model: 'glm-5.2' } : null;
