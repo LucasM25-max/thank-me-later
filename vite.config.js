@@ -24,6 +24,8 @@ const injectModelCatalog = () => ({
     const handleFilesBlock = /const handleFiles=e=>\{[\s\S]*?e\.target\.value='';\};/
     const fixedHandleFiles = `const handleFiles=e=>{const incoming=[...e.target.files].slice(0,6);Promise.all(incoming.map(file=>new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>{const bytes=new Uint8Array(reader.result||new ArrayBuffer(0));let binary='';const chunkSize=0x8000;for(let i=0;i<bytes.length;i+=chunkSize)binary+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunkSize,bytes.length)));const data=btoa(binary);let text='';if(file.type.startsWith('text/')||/\\.(md|json|js|ts|jsx|tsx|css|html|py|txt|xml)$/i.test(file.name)){try{text=new TextDecoder().decode(bytes)}catch{}}resolve({name:file.name,type:file.type||'application/octet-stream',data,text})};reader.onerror=()=>resolve({name:file.name,type:file.type||'application/octet-stream',data:'',text:''});reader.readAsArrayBuffer(file)}))).then(next=>setFiles(next));e.target.value='';};`
     transformed = transformed.replace(handleFilesBlock, fixedHandleFiles)
+    transformed = transformed.replace("import './command-menu.css';", "import './command-menu.css';\nimport { mountTranslateTool } from './translate-tool.jsx';")
+    transformed = transformed.replace('function App(){', 'function App(){\n  useEffect(() => { mountTranslateTool(); }, []);')
     return { code: transformed, map: null }
   }
 })
