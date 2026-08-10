@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import react from 'react'
 
 const injectModelCatalog = () => ({
   name: 'inject-model-catalog',
@@ -15,9 +15,9 @@ const injectModelCatalog = () => ({
   ['claude-sonnet-5', 'Claude Sonnet 5 · 55 · Limited Usage'],
   ['glm-5.2', 'GLM 5.2 · 53 · Limited Usage'],
   ['gpt-5.6-luna', 'GPT-5.6 Luna · 52'],
-  ['gemini-flash-latest', 'Gemini Flash · 52'],
+  ['gemini-flash-latest', 'Gemini 3.6 Flash · 52'],
   ['minimax-m3', 'Minimax M3 · 45'],
-  ['gemini-flash-lite-latest', 'Gemini Flash Lite · 37']
+  ['gemini-flash-lite-latest', 'Gemini 3.5 Flash-Lite · 37']
 ];`
     if (!modelBlock.test(code)) return null
     return { code: code.replace(modelBlock, replacement), map: null }
