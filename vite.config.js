@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import react from 'react'
+import react from '@vitejs/plugin-react'
 
 const injectModelCatalog = () => ({
   name: 'inject-model-catalog',
