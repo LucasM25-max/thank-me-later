@@ -31,9 +31,9 @@ export default async function handler(req, res) {
     if (fileContext && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nThe user attached text files. Use their contents as source material:\n${String(fileContext).slice(0, 120000)}`;
     if (toolResult && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nA local tool produced this result. Treat it as supplied tool output: ${String(toolResult).slice(0, 4000)}`;
 
-    if (model === 'minimax-m3' || model === 'gpt-5.6-terra' || model === 'qwen3.8-max' || model === 'k3' || model === 'claude-opus-4-8') {
+    if (model === 'minimax-m3' || model === 'gpt-5.6-terra' || model === 'qwen3.8-max' || model === 'k3' || model === 'claude-opus-4-8' || model === 'gpt-5.6-sol') {
       if (!process.env.POLLINATIONS_API_KEY) return res.status(500).json({ error: 'POLLINATIONS_API_KEY is not configured' });
-      const pollinationsModel = model === 'gpt-5.6-terra' ? 'Lorodn4x/gpt-5.6-terra' : model === 'qwen3.8-max' ? 'vendouple/qwen3.8-max' : model === 'k3' ? 'solarnode-development/k3' : model === 'claude-opus-4-8' ? 'vendouple/claude-opus-4-8' : 'Lorodn4x/minimax-m3';
+      const pollinationsModel = model === 'gpt-5.6-terra' ? 'Lorodn4x/gpt-5.6-terra' : model === 'qwen3.8-max' ? 'vendouple/qwen3.8-max' : model === 'k3' ? 'solarnode-development/k3' : model === 'claude-opus-4-8' ? 'vendouple/claude-opus-4-8' : model === 'gpt-5.6-sol' ? 'gpt-5.6-sol' : 'Lorodn4x/minimax-m3';
       const body = JSON.stringify({ model: pollinationsModel, messages: contextualMessages, temperature: 0.7, stream: true });
       const result = await requestWithTimeLimit('https://gen.pollinations.ai/v1/chat/completions', body, { authorization: `Bearer ${process.env.POLLINATIONS_API_KEY}` });
       const { response, text } = result; const parsed = parseProviderText(text); const returnedText = parsed.text || text;
