@@ -7,6 +7,7 @@ const injectModelCatalog = () => ({
     if (!id.endsWith('/src-code-env.jsx')) return null
     const modelBlock = /const models = \[[\s\S]*?\n\];/
     const replacement = `const models = [
+  ['qwen3.8-max', 'Qwen 3.8 Max · 58'],
   ['gpt-5.6-terra', 'GPT-5.6 Terra · 57'],
   ['claude-sonnet-5', 'Claude Sonnet 5 · 55'],
   ['glm-5.2', 'GLM 5.2 · 53'],
