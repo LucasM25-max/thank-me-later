@@ -31,9 +31,10 @@ export default async function handler(req, res) {
     if (fileContext && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nThe user attached text files. Use their contents as source material:\n${String(fileContext).slice(0, 120000)}`;
     if (toolResult && contextualMessages.length) contextualMessages[contextualMessages.length - 1].content += `\n\nA local tool produced this result. Treat it as supplied tool output: ${String(toolResult).slice(0, 4000)}`;
 
-    if (model === 'minimax-m3') {
+    if (model === 'minimax-m3' || model === 'gpt-5.6-terra') {
       if (!process.env.POLLINATIONS_API_KEY) return res.status(500).json({ error: 'POLLINATIONS_API_KEY is not configured' });
-      const body = JSON.stringify({ model: 'Lorodn4x/minimax-m3', messages: contextualMessages, temperature: 0.7, stream: true });
+      const pollinationsModel = model === 'gpt-5.6-terra' ? 'Lorodn4x/gpt-5.6-terra' : 'Lorodn4x/minimax-m3';
+      const body = JSON.stringify({ model: pollinationsModel, messages: contextualMessages, temperature: 0.7, stream: true });
       const result = await requestWithTimeLimit('https://gen.pollinations.ai/v1/chat/completions', body, { authorization: `Bearer ${process.env.POLLINATIONS_API_KEY}` });
       const { response, text } = result; const parsed = parseProviderText(text); const returnedText = parsed.text || text;
       if (!response.ok && isTransient(returnedText, response.status)) return res.status(response.status >= 400 && response.status < 600 ? response.status : 502).json({ error: 'The Pollinations model gateway timed out. Please retry the request.' });
