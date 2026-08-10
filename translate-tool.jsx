@@ -25,25 +25,54 @@ export function mountTranslateTool() {
   if (mounted || typeof document === 'undefined') return;
   mounted = true;
 
-  const root = document.createElement('div');
-  root.id = 'tml-translate-root';
-  root.setAttribute('data-translate-ui', 'true');
-  root.style.cssText = 'position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;z-index:2147483647!important;pointer-events:none!important;visibility:visible!important;opacity:1!important;display:block!important;';
-  document.documentElement.appendChild(root);
-
-  let open = false;
-  const reactRoot = createRoot(root);
-  const render = () => reactRoot.render(open ? <div style={{pointerEvents:'auto'}}><TranslateTool onClose={() => { open = false; render(); }}/></div> : null);
-
+  // Keep the button outside the React root. Previously the button was appended to
+  // the same node controlled by createRoot(), and the first render(null) removed it.
+  const host = document.body || document.documentElement;
   const button = document.createElement('button');
   button.id = 'tml-translate-sidebar-button';
   button.type = 'button';
   button.textContent = 'Translate';
   button.setAttribute('aria-label', 'Open Translate');
   button.setAttribute('data-translate-button', 'true');
-  button.onclick = () => { open = true; render(); };
-  button.style.cssText = 'position:fixed!important;left:16px!important;bottom:16px!important;width:150px!important;height:48px!important;display:flex!important;align-items:center!important;justify-content:center!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;z-index:2147483647!important;box-sizing:border-box!important;margin:0!important;padding:0 18px!important;border:2px solid #8b5cf6!important;border-radius:12px!important;background:#4f46e5!important;color:#ffffff!important;font:700 14px/1 Arial,sans-serif!important;cursor:pointer!important;box-shadow:0 8px 30px rgba(0,0,0,.45),0 0 0 2px rgba(139,92,246,.25)!important;';
+  button.style.cssText = [
+    'position:fixed!important',
+    'left:16px!important',
+    'bottom:16px!important',
+    'width:150px!important',
+    'height:48px!important',
+    'display:flex!important',
+    'align-items:center!important',
+    'justify-content:center!important',
+    'visibility:visible!important',
+    'opacity:1!important',
+    'pointer-events:auto!important',
+    'z-index:2147483647!important',
+    'box-sizing:border-box!important',
+    'margin:0!important',
+    'padding:0 18px!important',
+    'border:2px solid #8b5cf6!important',
+    'border-radius:12px!important',
+    'background:#4f46e5!important',
+    'color:#ffffff!important',
+    'font:700 14px/1 Arial,sans-serif!important',
+    'cursor:pointer!important',
+    'text-align:center!important',
+    'box-shadow:0 8px 30px rgba(0,0,0,.45),0 0 0 2px rgba(139,92,246,.25)!important'
+  ].join(';');
 
-  root.appendChild(button);
+  let overlayHost = document.getElementById('tml-translate-root');
+  if (!overlayHost) {
+    overlayHost = document.createElement('div');
+    overlayHost.id = 'tml-translate-root';
+    overlayHost.setAttribute('data-translate-ui', 'true');
+    overlayHost.style.cssText = 'position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;z-index:2147483646!important;pointer-events:none!important;visibility:visible!important;opacity:1!important;display:block!important;';
+    host.appendChild(overlayHost);
+  }
+
+  let open = false;
+  const reactRoot = createRoot(overlayHost);
+  const render = () => reactRoot.render(open ? <div style={{pointerEvents:'auto'}}><TranslateTool onClose={() => { open = false; render(); }}/></div> : null);
+  button.onclick = () => { open = true; render(); };
+  host.appendChild(button);
   render();
 }
