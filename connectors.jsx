@@ -15,9 +15,10 @@ export function Connectors({ onExit, onConnectorChange }) {
   const loadConnection = async () => {
     const { data } = await supabase.from('connector_connections').select('status, enabled, metadata').eq('connector_id', 'github').maybeSingle();
     if (data) {
-      setConnection({ status: data.status || 'disconnected', enabled: !!data.enabled });
+      const needsReconnect = data.status === 'connected';
+      setConnection({ status: needsReconnect ? 'connected' : 'disconnected', enabled: false });
       setTools(Array.isArray(data.metadata?.tools) ? data.metadata.tools : []);
-      window.__tmlConnectors?.setEnabled(data.status === 'connected' && !!data.enabled);
+      window.__tmlConnectors?.setEnabled(false);
     }
   };
   useEffect(() => { loadConnection(); }, []);
@@ -57,6 +58,7 @@ export function Connectors({ onExit, onConnectorChange }) {
 
   const toggle = async () => {
     if (connection.status !== 'connected') { setShowConnect(true); return; }
+    if (!token) { setShowConnect(true); setError('Reconnect GitHub to restore the credential for this browser session.'); return; }
     await persist({ enabled: !connection.enabled });
   };
 
@@ -65,8 +67,8 @@ export function Connectors({ onExit, onConnectorChange }) {
     <div className="connectors-intro"><div className="connectors-eyebrow"><Plug size={13}/> CONNECTORS</div><h1>Connect your tools.</h1><p>Give your AI access to external services when you choose. Connectors are off until you explicitly enable them.</p></div>
     <div className="connector-card">
       <div className="connector-card-main"><div className="connector-icon"><Github size={24}/></div><div className="connector-copy"><div className="connector-title-row"><h2>GitHub</h2><span className={`connector-status ${connection.status}`}>{connection.status === 'connected' ? <><Check size={11}/> Connected</> : <><span className="connector-dot"/> Not connected</>}</span></div><p>Let your AI search repositories, inspect code, work with issues and pull requests, and use GitHub's official MCP tools.</p><div className="connector-endpoint"><span>Official remote MCP server</span><code>{GITHUB_ENDPOINT}</code></div></div></div>
-      <div className="connector-actions"><button className={`connector-toggle ${connection.enabled ? 'on' : ''}`} onClick={toggle} disabled={busy || connection.status !== 'connected'}><span><Power size={14}/>{connection.enabled ? 'Enabled' : 'Disabled'}</span><i/></button>{connection.status === 'connected' ? <button className="connector-secondary" onClick={disconnect} disabled={busy}>{busy ? <Loader2 className="spin" size={14}/> : <X size={14}/>} Disconnect</button> : <button className="connector-primary" onClick={() => setShowConnect(true)} disabled={busy}><Github size={15}/> Connect GitHub</button>}</div>
-      {connection.status === 'connected' && <div className="connector-permission"><ShieldCheck size={15}/><span><b>{connection.enabled ? 'GitHub tools are available to the AI.' : 'Connected, but disabled.'}</b> {tools.length ? `${tools.length} MCP tools discovered.` : ''}</span></div>}
+      <div className="connector-actions"><button className={`connector-toggle ${connection.enabled ? 'on' : ''}`} onClick={toggle} disabled={busy}><span><Power size={14}/>{connection.enabled ? 'Enabled' : 'Disabled'}</span><i/></button>{connection.status === 'connected' ? <button className="connector-secondary" onClick={disconnect} disabled={busy}>{busy ? <Loader2 className="spin" size={14}/> : <X size={14}/>} Disconnect</button> : <button className="connector-primary" onClick={() => setShowConnect(true)} disabled={busy}><Github size={15}/> Connect GitHub</button>}</div>
+      {connection.status === 'connected' && <div className="connector-permission"><ShieldCheck size={15}/><span><b>{connection.enabled ? 'GitHub tools are available to the AI.' : token ? 'Connected, but disabled.' : 'GitHub is connected to your account. Reconnect in this browser to enable it.'}</b> {tools.length ? `${tools.length} MCP tools discovered.` : ''}</span></div>}
       {error && <div className="connector-error"><AlertCircle size={15}/>{error}</div>}
     </div>
     <div className="connectors-note"><LockKeyhole size={15}/><div><b>Your credential stays out of chat.</b><p>The GitHub credential is held in memory by this browser session and sent only to the connector endpoint when the AI needs GitHub tools. It is not stored in localStorage or included in model messages.</p></div></div>
