@@ -34,7 +34,9 @@ export function Connectors({ onExit, onConnectorChange }) {
     if (!token.trim()) { setError('Enter a GitHub access token to connect GitHub. The token is kept only in this browser session and is never saved to chat history.'); return; }
     setBusy(true); setError('');
     try {
-      const response = await fetch('/api/mcp-github', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'connect', token: token.trim() }) });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Your account session has expired. Please sign in again.');
+      const response = await fetch('/api/mcp-github', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ action: 'connect', token: token.trim() }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'GitHub connection failed.');
       const discovered = Array.isArray(data.tools) ? data.tools : [];
