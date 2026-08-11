@@ -113,7 +113,11 @@ export function LiveTranslate({ onExit }) {
     if (status !== 'idle') return; setError(''); setSaved(false); setSegments([]); setCompletedAt(null); stoppedRef.current = false; setStatus('starting');
     try {
       if (!navigator.mediaDevices?.getUserMedia || !window.WebSocket) throw new Error('This browser does not support the microphone features required for Live Translate.');
-      const token = await getToken(targetLanguage, echoTargetLanguage); const ws = new WebSocket(`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(token)}`); wsRef.current = ws;
+      const token = await getToken(targetLanguage, echoTargetLanguage);
+      // Ephemeral tokens without liveConnectConstraints use the standard
+      // BidiGenerateContent endpoint. Translation settings are selected by
+      // the client in the setup message, as allowed by the Live Translate API.
+      const ws = new WebSocket(`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?access_token=${encodeURIComponent(token)}`); wsRef.current = ws;
       await new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('Gemini Live API connection timed out.')), 15000); ws.onopen = () => { clearTimeout(timeout); ws.send(JSON.stringify({ setup: { model: `models/${LIVE_MODEL}`, generationConfig: { responseModalities: ['AUDIO'], inputAudioTranscription: {}, outputAudioTranscription: {}, translationConfig: { targetLanguageCode: targetLanguage, echoTargetLanguage } } } })); resolve(); }; ws.onerror = () => { clearTimeout(timeout); reject(new Error('Could not connect to Gemini Live API.')); }; });
       ws.onmessage = handleServerMessage; ws.onerror = () => setError('The Gemini Live session encountered a connection error.'); ws.onclose = event => { if (!stoppedRef.current) setError(event.reason || 'The Gemini Live session closed unexpectedly.'); };
       await startCapture(); setStatus('active');
