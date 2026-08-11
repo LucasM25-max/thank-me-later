@@ -13,13 +13,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Live Translate lets the user choose targetLanguageCode at session time.
-    // Therefore this endpoint intentionally creates an unrestricted Live API
-    // ephemeral token rather than using liveConnectConstraints. The latter is
-    // currently rejected by some Gemini auth_tokens deployments with:
-    // "Unknown name liveConnectConstraints at 'auth_token'".
-    // The token is still short-lived and single-use, and the client locks the
-    // session to the Live Translate model in its WebSocket setup message.
     const { targetLanguageCode = 'en', echoTargetLanguage = false } = req.body || {};
     if (typeof targetLanguageCode !== 'string' || !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/.test(targetLanguageCode)) {
       return res.status(400).json({ error: 'Invalid target language code' });
@@ -29,10 +22,25 @@ export default async function handler(req, res) {
     }
 
     const now = Date.now();
+    // REST auth_tokens uses the bidiGenerateContentSetup union for constrained
+    // Live API tokens. The WebSocket must therefore use the corresponding
+    // BidiGenerateContentConstrained endpoint with access_token.
     const payload = {
       uses: 1,
       expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
-      newSessionExpireTime: new Date(now + 60 * 1000).toISOString()
+      newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
+      bidiGenerateContentSetup: {
+        model: MODEL,
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          translationConfig: {
+            targetLanguageCode,
+            echoTargetLanguage
+          }
+        },
+        inputAudioTranscription: {},
+        outputAudioTranscription: {}
+      }
     };
 
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/auth_tokens', {
