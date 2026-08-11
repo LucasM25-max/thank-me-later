@@ -16,7 +16,8 @@
     "lucide-react": "latest",
     "react-markdown": "latest",
     "remark-gfm": "latest",
-    "jszip": "latest"
+    "jszip": "latest",
+    "jspdf": "latest"
   },
   "devDependencies": {}
 }
