@@ -48,8 +48,12 @@ export function Connectors({ onExit, onConnectorChange }) {
     if (sessionError) throw sessionError;
     const userId = sessionData?.session?.user?.id;
     if (!userId) throw new Error('Your account session has expired. Please sign in again.');
+    const { data: existing, error: existingError } = await supabase.from('connector_connections').select('metadata').eq('connector_id', 'github').maybeSingle();
+    if (existingError) throw existingError;
+    const preservedMetadata = existing?.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
+    const metadata = { ...preservedMetadata, endpoint: GITHUB_ENDPOINT, tools: tools.slice(0, 80) };
     setConnection(next);
-    const { error: persistError } = await supabase.from('connector_connections').upsert({ user_id: userId, connector_id: 'github', status: next.status, enabled: next.enabled, metadata: { endpoint: GITHUB_ENDPOINT, tools: tools.slice(0, 80) } }, { onConflict: 'user_id,connector_id' });
+    const { error: persistError } = await supabase.from('connector_connections').upsert({ user_id: userId, connector_id: 'github', status: next.status, enabled: next.enabled, metadata }, { onConflict: 'user_id,connector_id' });
     if (persistError) throw persistError;
     window.__tmlConnectors?.setEnabled(next.status === 'connected' && next.enabled);
     onConnectorChange?.(next);
