@@ -64,7 +64,6 @@ export function Connectors({ onExit, onConnectorChange }) {
   };
 
   return <div className="connectors-page">
-    <div className="connectors-top"><button className="connectors-back" onClick={onExit}>Back to chat</button></div>
     <div className="connectors-intro"><div className="connectors-eyebrow"><Plug size={13}/> CONNECTORS</div><h1>Connect your tools.</h1><p>Give your AI access to external services when you choose. Connectors are off until you explicitly enable them.</p></div>
     <div className="connector-card">
       <div className="connector-card-main"><div className="connector-icon"><GitBranch size={24}/></div><div className="connector-copy"><div className="connector-title-row"><h2>GitHub</h2><span className={`connector-status ${connection.status}`}>{connection.status === 'connected' ? <><Check size={11}/> Connected</> : <><span className="connector-dot"/> Not connected</>}</span></div><p>Let your AI search repositories, inspect code, work with issues and pull requests, and use GitHub's official MCP tools.</p><div className="connector-endpoint"><span>Official remote MCP server</span><code>{GITHUB_ENDPOINT}</code></div></div></div>
