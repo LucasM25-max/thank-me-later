@@ -14,6 +14,7 @@ function extractImages(value) { const images = []; const add = (url, alt = 'Gene
 function parseProviderText(text) { const raw = String(text || ''); let data = null; try { data = raw ? JSON.parse(raw) : null; } catch {} if (data && typeof data === 'object') { const message = data?.choices?.[0]?.message; const content = message?.content ?? data?.choices?.[0]?.text ?? data?.text; let extractedText = ''; if (typeof content === 'string') extractedText = content; else if (Array.isArray(content)) extractedText = content.filter((part) => typeof part?.text === 'string').map((part) => part.text).join(''); const images = extractImages(message?.images || content || data?.images || data?.output); return { data, text: extractedText, images }; } return { data: null, text: raw, images: [] }; }
 
 function isTransient(text, status) { return [408, 429, 500, 502, 503, 504].includes(status) || /(?:gateway\s+timeout|upstream\s+timeout|bad\s+gateway|service\s+unavailable|upstream\s+request)/i.test(String(text || '')) || /^\s*<!doctype html/i.test(String(text || '')) || /^\s*<html[\s>]/i.test(String(text || '')); }
+function isGeminiFlashUsageLimit(text, status, data) { const source = [text, data?.error?.message, data?.error?.status, data?.message].filter(Boolean).join(' '); return status === 429 || /(?:quota|usage\s+limit|rate\s+limit|resource\s+exhausted|too\s+many\s+requests|limit\s+exceeded)/i.test(source); }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'Method not allowed' }); }
@@ -52,13 +53,21 @@ export default async function handler(req, res) {
       const imageAttachments = attachments.filter((a) => a && a.type?.startsWith('image/') && typeof a.data === 'string');
       if (imageAttachments.length && contents.length) contents[contents.length - 1].parts.push(...imageAttachments.map((a) => ({ inlineData: { mimeType: a.type, data: a.data } })));
       if (!contents.length) return res.status(400).json({ error: 'No usable messages supplied' });
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }) });
-      const data = await r.json(); if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || 'Gemini request failed' });
+      const requestGemini = async (targetModel) => { const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }) }); let data = null; try { data = await response.json(); } catch {} return { response, data }; };
+      let targetModel = model;
+      let { response: r, data } = await requestGemini(targetModel);
+      let usedFallback = false;
+      if (!r.ok && model === 'gemini-flash-latest' && isGeminiFlashUsageLimit(data?.error?.message || '', r.status, data)) {
+        targetModel = 'gemini-3.5-flash';
+        ({ response: r, data } = await requestGemini(targetModel));
+        usedFallback = r.ok;
+      }
+      if (!r.ok) return res.status(r.status).json({ error: data?.error?.message || 'Gemini request failed' });
       const parts = data?.candidates?.[0]?.content?.parts || [];
       const text = parts.map((p) => p.text || '').join('');
       const images = extractImages(parts);
       const imageMarkdown = images.map((image) => `![${String(image.alt || 'Generated image').replace(/[\[\]]/g, '')}](${image.url})`).join('\n\n');
-      return res.status(200).json({ text: [text, imageMarkdown].filter(Boolean).join('\n\n') || 'No response returned.', images });
+      return res.status(200).json({ text: [text, imageMarkdown].filter(Boolean).join('\n\n') || 'No response returned.', images, geminiFallback: usedFallback, modelUsed: targetModel });
     }
 
     const provider = model === 'gpt-5.6-luna' ? { base: 'https://apibeam.bitsmall.in/app/ysw4a2tcac3ly44dgp4tf', model: 'gpt-5.6-luna' } : model === 'claude-sonnet-5' ? { base: 'https://apibeam.bitsmall.in/app/cjzxbswhe4lw9y7rutrsr', model: 'claude-sonnet-5' } : model === 'glm-5.2' ? { base: 'https://apibeam.bitsmall.in/app/8gjkog1269ekxnqffqskgm', model: 'glm-5.2' } : null;
