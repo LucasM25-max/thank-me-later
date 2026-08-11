@@ -2,6 +2,15 @@ export const maxDuration = 60;
 
 const MCP_URL = 'https://api.githubcopilot.com/mcp/';
 const MODERN_VERSION = '2026-07-28';
+const SUPABASE_URL = 'https://pwoctabbdrlrvusfrffq.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_LeW85hQR5fdSMfsq516OKw_6nHXtchR';
+
+async function verifyAppSession(req) {
+  const authorization = req.headers.authorization || '';
+  if (!authorization.startsWith('Bearer ')) return false;
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { apikey: SUPABASE_PUBLISHABLE_KEY, authorization } });
+  return response.ok;
+}
 
 async function readMcpResponse(response) {
   const text = await response.text();
@@ -57,6 +66,7 @@ async function callTool(token, name, arguments_, protocol, sessionId) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (!(await verifyAppSession(req))) return res.status(401).json({ error: 'Sign in to use Connectors.' });
   try {
     const { action, token, tool, arguments: toolArguments, sessionId, protocol } = req.body || {};
     if (typeof token !== 'string' || token.trim().length < 10) return res.status(400).json({ error: 'A valid GitHub access token is required.' });
