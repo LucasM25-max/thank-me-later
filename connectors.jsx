@@ -17,6 +17,7 @@ export function Connectors({ onExit, onConnectorChange }) {
     if (data) {
       setConnection({ status: data.status || 'disconnected', enabled: !!data.enabled });
       setTools(Array.isArray(data.metadata?.tools) ? data.metadata.tools : []);
+      window.__tmlConnectors?.setEnabled(data.status === 'connected' && !!data.enabled);
     }
   };
   useEffect(() => { loadConnection(); }, []);
@@ -25,6 +26,7 @@ export function Connectors({ onExit, onConnectorChange }) {
     const next = { ...connection, ...patch };
     setConnection(next);
     await supabase.from('connector_connections').upsert({ connector_id: 'github', status: next.status, enabled: next.enabled, metadata: { endpoint: GITHUB_ENDPOINT, tools: tools.slice(0, 80) } }, { onConflict: 'user_id,connector_id' });
+    window.__tmlConnectors?.setEnabled(next.status === 'connected' && next.enabled);
     onConnectorChange?.(next);
   };
 
@@ -37,6 +39,8 @@ export function Connectors({ onExit, onConnectorChange }) {
       if (!response.ok) throw new Error(data?.error || 'GitHub connection failed.');
       const discovered = Array.isArray(data.tools) ? data.tools : [];
       setTools(discovered);
+      window.__tmlConnectors?.setToken(token.trim());
+      window.__tmlConnectors?.setEnabled(false);
       await persist({ status: 'connected', enabled: false });
       setShowConnect(false);
     } catch (e) { setError(e.message || 'GitHub connection failed.'); }
@@ -47,7 +51,7 @@ export function Connectors({ onExit, onConnectorChange }) {
     setBusy(true); setError('');
     try {
       await supabase.from('connector_connections').delete().eq('connector_id', 'github');
-      setConnection({ status: 'disconnected', enabled: false }); setTools([]); setToken(''); onConnectorChange?.({ status: 'disconnected', enabled: false });
+      setConnection({ status: 'disconnected', enabled: false }); setTools([]); setToken(''); window.__tmlConnectors?.setToken(''); window.__tmlConnectors?.setEnabled(false); onConnectorChange?.({ status: 'disconnected', enabled: false });
     } finally { setBusy(false); }
   };
 
