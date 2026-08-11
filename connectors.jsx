@@ -15,6 +15,8 @@ export function Connectors({ onExit, onConnectorChange }) {
 
   const loadConnection = async () => {
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData?.session?.user?.id) throw new Error('Your account session has expired. Please sign in again.');
       const { data, error: connectionError } = await supabase.from('connector_connections').select('status, enabled, metadata').eq('connector_id', 'github').maybeSingle();
       if (connectionError) throw connectionError;
       const { data: storedToken, error: tokenError } = await supabase.rpc('get_github_connector_token');
@@ -42,8 +44,12 @@ export function Connectors({ onExit, onConnectorChange }) {
 
   const persist = async (patch) => {
     const next = { ...connection, ...patch };
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    const userId = sessionData?.session?.user?.id;
+    if (!userId) throw new Error('Your account session has expired. Please sign in again.');
     setConnection(next);
-    const { error: persistError } = await supabase.from('connector_connections').upsert({ connector_id: 'github', status: next.status, enabled: next.enabled, metadata: { endpoint: GITHUB_ENDPOINT, tools: tools.slice(0, 80) } }, { onConflict: 'user_id,connector_id' });
+    const { error: persistError } = await supabase.from('connector_connections').upsert({ user_id: userId, connector_id: 'github', status: next.status, enabled: next.enabled, metadata: { endpoint: GITHUB_ENDPOINT, tools: tools.slice(0, 80) } }, { onConflict: 'user_id,connector_id' });
     if (persistError) throw persistError;
     window.__tmlConnectors?.setEnabled(next.status === 'connected' && next.enabled);
     onConnectorChange?.(next);
