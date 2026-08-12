@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { GitBranch, ShieldCheck, Plug, Power, ExternalLink, X, Check, AlertCircle, Loader2, LockKeyhole, ArrowLeft, Github } from 'lucide-react';
+import { ShieldCheck, Plug, Power, ExternalLink, X, Check, AlertCircle, Loader2, LockKeyhole, ArrowLeft, Github } from 'lucide-react';
 import { supabase } from './account-auth.jsx';
 
 const GITHUB_ENDPOINT = 'https://api.githubcopilot.com/mcp/';
