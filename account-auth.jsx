@@ -1,13 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://pwoctabbdrlrvusfrffq.supabase.co';
+const SUPABASE_URL = 'https://pwoctabbdrlrvusfrffq2.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_LeW85hQR5fdSMfsq516OKw_6nHXtchR';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
 });
 
-const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[ch]);
+const escapeHtml = (value = '') => String(value).replace(/[&<>'\"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '\"':'&quot;' })[ch]);
 const localChats = () => { try { const value = JSON.parse(localStorage.getItem('tml-chats') || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } };
 
 async function syncChats(user) {
@@ -24,18 +24,7 @@ async function syncChats(user) {
 }
 
 function injectStyles() {
-  if (document.getElementById('tml-account-styles')) return;
-  const style = document.createElement('style'); style.id = 'tml-account-styles';
-  style.textContent = `
-  .tml-auth-shell{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;background:#f7f3ee;color:#302b27;font-family:DM Sans,Inter,system-ui,sans-serif;padding:24px}
-  .tml-auth-card{width:min(420px,100%);background:#fffdfa;border:1px solid #e6ded5;border-radius:22px;box-shadow:0 20px 60px #3b302514;padding:34px}
-  .tml-auth-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px;margin-bottom:8px}.tml-auth-brand-mark{width:32px;height:32px;border-radius:10px;background:#302b27;color:white;display:grid;place-items:center;font-size:15px}
-  .tml-auth-title{font-size:28px;letter-spacing:-.04em;margin:22px 0 6px}.tml-auth-sub{color:#746b64;font-size:14px;line-height:1.55;margin:0 0 24px}
-  .tml-auth-field{display:grid;gap:7px;margin:14px 0}.tml-auth-field label{font-size:12px;font-weight:600;color:#5f554d}.tml-auth-field input{box-sizing:border-box;width:100%;border:1px solid #ddd3ca;background:#fff;border-radius:11px;padding:12px 13px;font:inherit;color:#302b27;outline:none}.tml-auth-field input:focus{border-color:#9a8d82;box-shadow:0 0 0 3px #8c7b6b14}
-  .tml-auth-primary{width:100%;border:0;border-radius:11px;background:#302b27;color:white;padding:12px 14px;font:600 14px inherit;cursor:pointer;margin-top:7px}.tml-auth-primary:disabled{opacity:.55;cursor:wait}
-  .tml-auth-secondary{border:0;background:transparent;color:#6f6258;font:600 13px inherit;cursor:pointer;padding:10px 0}.tml-auth-error{margin:12px 0;padding:10px 12px;border-radius:10px;background:#fff0ee;color:#9b4236;font-size:12px;line-height:1.45}.tml-auth-success{margin:12px 0;padding:10px 12px;border-radius:10px;background:#edf7ef;color:#3e7548;font-size:12px;line-height:1.45}
-  .tml-account-menu{position:fixed;left:14px;bottom:14px;z-index:100000;display:flex;align-items:center;gap:8px}.tml-account-button{display:flex;align-items:center;gap:9px;border:1px solid #ddd4cb;background:#fffdfa;color:#403831;border-radius:13px;padding:8px 11px;box-shadow:0 5px 18px #2d241408;cursor:pointer;font:600 12px DM Sans,Inter,sans-serif}.tml-account-avatar{width:25px;height:25px;border-radius:8px;background:#302b27;color:#fff;display:grid;place-items:center;font-size:11px}.tml-account-pop{position:absolute;left:0;bottom:47px;width:220px;background:#fffdfa;border:1px solid #e4dcd3;border-radius:14px;padding:7px;box-shadow:0 14px 40px #2d24141c}.tml-account-meta{padding:10px 10px 12px;border-bottom:1px solid #eee7e0;margin-bottom:5px}.tml-account-name{font-weight:700;font-size:13px}.tml-account-email{color:#81766d;font-size:11px;margin-top:3px;overflow:hidden;text-overflow:ellipsis}.tml-account-action{width:100%;text-align:left;border:0;background:transparent;border-radius:9px;padding:9px 10px;color:#514840;font:600 12px DM Sans,Inter,sans-serif;cursor:pointer}.tml-account-action:hover{background:#f2eee9}
-  `; document.head.appendChild(style);
+  // Authentication is styled by the same global design system in style.css.
 }
 
 function authShell() {
