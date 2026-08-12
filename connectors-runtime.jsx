@@ -93,6 +93,8 @@ function setConnectorScreen(open) {
   if (open) updateOverlayPosition();
 }
 
+const connectorIconMarkup = '<svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12v8"/><path d="M8 4v4a4 4 0 0 0 8 0V4"/><path d="M4 8v1a8 8 0 0 0 16 0V8"/></svg>';
+
 function SidebarConnectorButton({ onOpen }) {
   useEffect(() => {
     const find = () => {
@@ -109,7 +111,7 @@ function SidebarConnectorButton({ onOpen }) {
         button.type = 'button';
         button.className = 'sidebar-tool tml-connectors-sidebar-button';
         button.setAttribute('aria-label', 'Connectors');
-        button.innerHTML = '<span class="sidebar-tool-icon" aria-hidden="true">✦</span><span class="sidebar-tool-label">Connectors</span>';
+        button.innerHTML = `<span class="sidebar-tool-icon" aria-hidden="true">${connectorIconMarkup}</span><span class="sidebar-tool-label">Connectors</span>`;
         button.addEventListener('click', onOpen);
         const parent = library.parentElement;
         if (parent) parent.insertBefore(button, library);
