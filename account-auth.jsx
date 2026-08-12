@@ -24,10 +24,6 @@ async function syncChats(user) {
   if (local.length) await supabase.from('user_chat_state').upsert({ user_id: user.id, chats: local }, { onConflict: 'user_id' });
 }
 
-function injectStyles() {
-  // Authentication consumes the canonical global design system imported above.
-}
-
 function authShell() {
   const shell = document.createElement('div'); shell.className = 'tml-auth-shell';
   shell.innerHTML = `<div class="tml-auth-card"><div class="tml-auth-brand"><span class="tml-auth-brand-mark">T</span><span>Thank Me Later</span></div><h1 class="tml-auth-title"></h1><p class="tml-auth-sub"></p><form class="tml-auth-form"><div class="tml-auth-field"><label>Email</label><input name="email" type="email" autocomplete="email" required></div><div class="tml-auth-field password-field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div><div class="tml-auth-field name-field"><label>Display name</label><input name="displayName" autocomplete="name"></div><div class="tml-auth-message"></div><button class="tml-auth-primary" type="submit"></button></form><button class="tml-auth-secondary switch-mode"></button><button class="tml-auth-secondary reset-mode">Forgot your password?</button></div>`;
@@ -35,7 +31,6 @@ function authShell() {
 }
 
 async function renderAuth() {
-  injectStyles();
   const { data: { session } } = await supabase.auth.getSession();
   if (session) return session;
   const shell = authShell(); const title = shell.querySelector('.tml-auth-title'); const sub = shell.querySelector('.tml-auth-sub'); const form = shell.querySelector('form'); const primary = shell.querySelector('.tml-auth-primary'); const switcher = shell.querySelector('.switch-mode'); const reset = shell.querySelector('.reset-mode'); const message = shell.querySelector('.tml-auth-message'); const nameField = shell.querySelector('.name-field'); let mode = 'signin';
@@ -44,11 +39,15 @@ async function renderAuth() {
   switcher.onclick = () => { mode = mode === 'signin' ? 'signup' : 'signin'; message.textContent = ''; message.className = 'tml-auth-message'; paint(); };
   reset.onclick = () => { mode = 'reset'; message.textContent = ''; message.className = 'tml-auth-message'; paint(); };
   form.onsubmit = async e => { e.preventDefault(); message.textContent = ''; message.className = 'tml-auth-message'; primary.disabled = true; const fd = new FormData(form); const email = String(fd.get('email') || '').trim(); const password = String(fd.get('password') || ''); let result;
-    if (mode === 'reset') result = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}${location.pathname}` });
-    else if (mode === 'signup') result = await supabase.auth.signUp({ email, password, options: { data: { display_name: String(fd.get('displayName') || '').trim() } } });
-    else result = await supabase.auth.signInWithPassword({ email, password });
+    try {
+      if (mode === 'reset') result = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}${location.pathname}` });
+      else if (mode === 'signup') result = await supabase.auth.signUp({ email, password, options: { data: { display_name: String(fd.get('displayName') || '').trim() } } });
+      else result = await supabase.auth.signInWithPassword({ email, password });
+    } catch (error) {
+      result = { error };
+    }
     primary.disabled = false;
-    if (result.error) { message.className = 'tml-auth-message tml-auth-error'; message.textContent = result.error.message; return; }
+    if (result?.error) { message.className = 'tml-auth-message tml-auth-error'; message.textContent = result.error.message || 'Unable to contact the authentication service. Please check your connection and try again.'; return; }
     if (mode === 'reset') { message.className = 'tml-auth-message tml-auth-success'; message.textContent = 'If an account exists for that email, a password reset link has been sent.'; return; }
     if (mode === 'signup' && !result.data.session) { message.className = 'tml-auth-message tml-auth-success'; message.textContent = 'Account created. Check your email to confirm your address, then return here to sign in.'; return; }
     shell.remove(); await syncChats(result.data.session.user); await loadApplication(result.data.session.user);
@@ -60,9 +59,15 @@ async function loadApplication(user) {
   await import('./src-code-env.jsx');
   const profile = await supabase.from('profiles').select('display_name,avatar_url').eq('id', user.id).maybeSingle();
   const displayName = profile.data?.display_name || user.user_metadata?.display_name || user.email?.split('@')[0] || 'Account';
-  const wrap = document.createElement('div'); wrap.className = 'tml-account-menu'; wrap.innerHTML = `<button class="tml-account-button"><span class="tml-account-avatar">${escapeHtml(displayName.slice(0,1).toUpperCase())}</span><span>${escapeHtml(displayName)}</span></button><div class="tml-account-pop" style="display:none"><div class="tml-account-meta"><div class="tml-account-name">${escapeHtml(displayName)}</div><div class="tml-account-email">${escapeHtml(user.email || '')}</div></div><button class="tml-account-action" data-action="signout">Sign out</button></div>`; document.body.appendChild(wrap);
-  const button = wrap.querySelector('.tml-account-button'); const pop = wrap.querySelector('.tml-account-pop'); button.onclick = () => { pop.style.display = pop.style.display === 'none' ? 'block' : 'none'; }; wrap.querySelector('[data-action="signout"]').onclick = async () => { await supabase.auth.signOut(); location.reload(); };
-  document.addEventListener('click', e => { if (!wrap.contains(e.target)) pop.style.display = 'none'; });
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  const wrap = document.createElement('div'); wrap.className = 'tml-account-menu'; wrap.innerHTML = `<button class="tml-account-button" aria-expanded="false"><span class="tml-account-avatar" aria-hidden="true">${escapeHtml(displayName.slice(0,1).toUpperCase())}</span><span class="tml-account-copy"><span class="tml-account-name">${escapeHtml(displayName)}</span><span class="tml-account-label">Account</span></span><span class="tml-account-chevron" aria-hidden="true">⌃</span></button><div class="tml-account-pop" hidden><div class="tml-account-meta"><div class="tml-account-name">${escapeHtml(displayName)}</div><div class="tml-account-email">${escapeHtml(user.email || '')}</div></div><button class="tml-account-action" data-action="signout">Sign out</button></div>`;
+  sidebar.appendChild(wrap);
+  const button = wrap.querySelector('.tml-account-button'); const pop = wrap.querySelector('.tml-account-pop');
+  const setOpen = open => { pop.hidden = !open; button.setAttribute('aria-expanded', String(open)); };
+  button.onclick = () => setOpen(pop.hidden);
+  wrap.querySelector('[data-action="signout"]').onclick = async () => { await supabase.auth.signOut(); location.reload(); };
+  document.addEventListener('click', e => { if (!wrap.contains(e.target)) setOpen(false); });
   window.addEventListener('beforeunload', () => { const chats = localChats(); if (chats.length) supabase.from('user_chat_state').upsert({ user_id: user.id, chats }, { onConflict: 'user_id' }); });
 }
 
