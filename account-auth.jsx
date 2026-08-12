@@ -1,3 +1,4 @@
+import './style.css';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://pwoctabbdrlrvusfrffq2.supabase.co';
@@ -24,12 +25,12 @@ async function syncChats(user) {
 }
 
 function injectStyles() {
-  // Authentication is styled by the same global design system in style.css.
+  // Authentication consumes the canonical global design system imported above.
 }
 
 function authShell() {
   const shell = document.createElement('div'); shell.className = 'tml-auth-shell';
-  shell.innerHTML = `<div class="tml-auth-card"><div class="tml-auth-brand"><span class="tml-auth-brand-mark">T</span><span>Thank Me Later</span></div><h1 class="tml-auth-title"></h1><p class="tml-auth-sub"></p><form class="tml-auth-form"><div class="tml-auth-field"><label>Email</label><input name="email" type="email" autocomplete="email" required></div><div class="tml-auth-field password-field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div><div class="tml-auth-field name-field" style="display:none"><label>Display name</label><input name="displayName" autocomplete="name"></div><div class="tml-auth-message"></div><button class="tml-auth-primary" type="submit"></button></form><button class="tml-auth-secondary switch-mode"></button><button class="tml-auth-secondary reset-mode">Forgot your password?</button></div>`;
+  shell.innerHTML = `<div class="tml-auth-card"><div class="tml-auth-brand"><span class="tml-auth-brand-mark">T</span><span>Thank Me Later</span></div><h1 class="tml-auth-title"></h1><p class="tml-auth-sub"></p><form class="tml-auth-form"><div class="tml-auth-field"><label>Email</label><input name="email" type="email" autocomplete="email" required></div><div class="tml-auth-field password-field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div><div class="tml-auth-field name-field"><label>Display name</label><input name="displayName" autocomplete="name"></div><div class="tml-auth-message"></div><button class="tml-auth-primary" type="submit"></button></form><button class="tml-auth-secondary switch-mode"></button><button class="tml-auth-secondary reset-mode">Forgot your password?</button></div>`;
   document.body.appendChild(shell); return shell;
 }
 
